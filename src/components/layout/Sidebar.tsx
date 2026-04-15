@@ -14,7 +14,6 @@ import {
   ChevronRight,
   Users,
   GitBranch,
-  UserCog,
   Store,
   Coins,
   ExternalLink,
@@ -38,7 +37,6 @@ const navSections: NavSection[] = [
   {
     label: 'AI Workforce',
     items: [
-      { path: '/agents', icon: Bot, label: 'Agents' },
       { path: '/teams', icon: Users, label: 'Teams' },
     ],
   },
@@ -61,7 +59,6 @@ const navSections: NavSection[] = [
     items: [
       { path: '/settings', icon: Wrench, label: 'Config' },
       { path: '/connectors', icon: Plug, label: 'Connectors' },
-      { path: '/user-management', icon: UserCog, label: 'User Management' },
     ],
   },
   {
