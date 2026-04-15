@@ -1,8 +1,14 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Send, TrendingUp, TrendingDown, Activity, CheckCircle, AlertTriangle, Zap, XCircle, Clock, AlertCircle, Settings, Paperclip, Smartphone, QrCode, Shield, RefreshCw, CheckCircle2, ExternalLink, Users } from 'lucide-react';
+import { Send, TrendingUp, TrendingDown, Activity, CheckCircle, AlertTriangle, Zap, XCircle, Clock, AlertCircle, Settings, Paperclip, Smartphone, QrCode, Shield, RefreshCw, CheckCircle2, ExternalLink, Users, ChevronDown, ChevronUp, Rocket, Wrench, Play, Pause, Code, Trash2 } from 'lucide-react';
 import Header from '../components/layout/Header';
 import TeamCollaborationCanvas from '../components/TeamCollaborationCanvas';
+import { ParamConfirmCard, ExecLogCard, ResultCard, TypingIndicator } from '../components/runAgent/ScenarioCards';
+import ConfigPanel from '../components/runAgent/ConfigPanel';
+import RunDetailsPanel from '../components/runAgent/RunDetailsPanel';
+import PanelCard from '../components/PanelCard';
+import { scenario1Messages, scenario1PanelParams, scenario1PanelParamsFilled, scenario1AgentFiles, agentFileContents, configScenarioMessages, configFields, configFieldsFilled } from '../data/runAgentScenarios';
+import type { ScenarioMessage, PanelParam, ConfigField } from '../data/runAgentScenarios';
 import type { ChatMessage } from '../types';
 
 interface ApprovalItem {
@@ -68,25 +74,57 @@ const healthIssues: HealthIssue[] = [
     id: '1',
     agent: 'Financial Reconciliation Bot',
     status: 'error',
-    issue: 'Banking API connection timeout (started 2 hours ago)',
+    issue: 'Banking API timeout — 8 failed attempts, 2h ago',
     details: ['Frequency: 8 failed connection attempts', 'Auto-recovery: Attempted twice, unsuccessful', 'Root cause: API credentials may have expired or rate limit exceeded'],
     recommendation: 'Rotate API credentials in Connectors settings',
   },
   {
     id: '2',
+    agent: 'Invoice Processor',
+    status: 'error',
+    issue: 'PDF parsing failure — corrupted template, 1h ago',
+    details: ['Frequency: 12 failures in 1 hour', 'Auto-recovery: No auto-recovery', 'Root cause: PDF template format changed upstream'],
+    recommendation: 'Update PDF parser to handle new template version',
+  },
+  {
+    id: '3',
     agent: 'Customer Support Agent',
     status: 'warning',
-    issue: 'Response time increased 340% in last hour',
+    issue: 'Response time +340% — CRM connector latency',
     details: ['Current avg: 12.3s (normal: 2.8s)', 'Cause: Salesforce CRM connector experiencing high latency'],
     recommendation: 'Temporarily disable CRM lookup for non-critical tickets',
   },
   {
-    id: '3',
+    id: '4',
+    agent: 'Email Campaign Bot',
+    status: 'warning',
+    issue: 'Bounce rate 12% — exceeds 5% threshold',
+    details: ['Last 24h average', 'Auto-retry enabled', 'Root cause: Invalid email addresses in recent import batch'],
+    recommendation: 'Run email validation on import batch and quarantine invalid entries',
+  },
+  {
+    id: '5',
+    agent: 'Data Sync Agent',
+    status: 'warning',
+    issue: 'Sync delay 45min — normally under 5min',
+    details: ['Ongoing since 6:00 AM', 'Retry scheduled', 'Root cause: Source database under heavy load'],
+    recommendation: 'Switch to off-peak sync window or use read replica',
+  },
+  {
+    id: '6',
     agent: 'WMS Inventory Manager',
     status: 'config',
-    issue: 'Cannot activate - missing required configuration',
+    issue: 'Missing: API Key, Warehouse ID, Notification Channel',
     details: ['Missing: WMS API Key, Warehouse ID, Notification Channel'],
     recommendation: 'Complete setup in agent configuration to activate',
+  },
+  {
+    id: '7',
+    agent: 'HR Onboarding Bot',
+    status: 'config',
+    issue: 'Missing: LDAP credentials, Slack webhook',
+    details: ['Since deployment', 'N/A — not configured', 'Root cause: LDAP and Slack integration not set up'],
+    recommendation: 'Provide LDAP credentials and create Slack webhook',
   },
 ];
 
@@ -94,19 +132,7 @@ const initialConversation: ChatMessage[] = [
   {
     id: '1',
     role: 'steward',
-    content: `Hello! I'm your Agent Steward, here to help you manage and optimize your AI agent fleet.
-
-I can assist you with:
-
-**📊 AI Workforce Overview** - Get a comprehensive dashboard of your team's performance, costs, and key metrics
-
-**✅ Approval Decisions** - Review and process pending tasks that require your approval, with intelligent recommendations
-
-**🔧 Workforce Health Monitor** - Identify and fix issues affecting your agents' performance
-
-**⚙️ Configuration** - I can help you set up OAuth connections, channel integrations, and more
-
-What would you like to explore first?`,
+    content: 'WELCOME_VIEW',
     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
   },
 ];
@@ -189,13 +215,7 @@ function TeamOverviewWidget({ teamKey }: { teamKey: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-white mb-1">{team.name}</h2>
-          <p className="text-sm text-gray-500">Team collaboration & pending approvals</p>
-        </div>
-        <Users className="w-8 h-8 text-indigo-400" />
-      </div>
+      <p className="text-sm text-gray-500">Team collaboration & pending approvals</p>
 
       <div className="bg-dark-50 rounded-2xl border border-white/5 p-4">
         <h3 className="text-sm font-semibold text-white mb-3">Agent Collaboration</h3>
@@ -241,7 +261,13 @@ function TeamOverviewWidget({ teamKey }: { teamKey: string }) {
   );
 }
 
-function ApprovalsWidget() {
+function ApprovalsWidget({ onApprove, onProcessAll }: {
+  onApprove?: (agent: string, action: string) => void;
+  onProcessAll?: () => void;
+}) {
+  const [itemStates, setItemStates] = useState<Record<string, 'approved' | 'review'>>({});
+  const [allProcessed, setAllProcessed] = useState(false);
+
   const priorityConfig = {
     CRITICAL: { bg: 'bg-rose-500/20', text: 'text-rose-400', border: 'border-rose-500/30' },
     HIGH: { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30' },
@@ -249,68 +275,122 @@ function ApprovalsWidget() {
     LOW: { bg: 'bg-gray-500/20', text: 'text-gray-400', border: 'border-gray-500/30' },
   };
 
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-white mb-1">Pending Approvals</h2>
-          <p className="text-sm text-gray-500">Sorted by priority • {pendingApprovals.length} items</p>
-        </div>
-        <Clock className="w-8 h-8 text-amber-400" />
-      </div>
+  const handleApprove = (item: ApprovalItem) => {
+    setItemStates((prev) => ({ ...prev, [item.id]: 'approved' }));
+    onApprove?.(item.agent, item.action);
+  };
 
-      <div className="space-y-4">
-        {pendingApprovals.map((item) => {
+  const handleReview = (item: ApprovalItem) => {
+    setItemStates((prev) => ({ ...prev, [item.id]: 'review' }));
+  };
+
+  const handleProcessAll = () => {
+    setAllProcessed(true);
+    const states: Record<string, 'approved' | 'review'> = {};
+    pendingApprovals.forEach((i) => { states[i.id] = 'approved'; });
+    setItemStates(states);
+    onProcessAll?.();
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-gray-500">Sorted by priority • {pendingApprovals.filter((i) => !itemStates[i.id]).length} items</p>
+
+      {/* Pending items */}
+      <div className="space-y-3">
+        {pendingApprovals.filter((i) => !itemStates[i.id]).map((item) => {
           const priority = priorityConfig[item.priority];
           return (
-            <div key={item.id} className="bg-dark-50 rounded-2xl border border-white/5 p-5 hover:bg-black/20 transition-colors">
-              <div className="flex items-start gap-4">
-                <div className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${priority.bg} ${priority.text}`}>
+            <div key={item.id} className="rounded-xl border border-white/5 p-3.5 hover:bg-black/20 transition-colors">
+              {/* Row 1: priority + agent */}
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold flex-shrink-0 ${priority.bg} ${priority.text}`}>
                   {item.priority}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="font-semibold text-white text-base">{item.agent}</span>
-                    <span className="text-gray-500">•</span>
-                    <span className="text-gray-300">{item.action}</span>
-                  </div>
-                  <div className="space-y-1 mb-3">
-                    {item.details.map((detail, i) => (
-                      <p key={i} className="text-sm text-gray-400">{detail}</p>
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-2 p-3 rounded-lg bg-black/60">
-                    <span className={`text-sm font-medium ${
-                      item.recommendationType === 'approve' ? 'text-emerald-400' :
-                      item.recommendationType === 'flag' ? 'text-amber-400' : 'text-indigo-400'
-                    }`}>
-                      💡 {item.recommendationType === 'approve' ? 'Recommended: Approve' :
-                       item.recommendationType === 'flag' ? 'Recommended: Approve with flag' : 'Recommended: Review first'}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex gap-3">
-                  <button className="px-4 py-2.5 rounded-xl text-sm font-medium bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors">
-                    Approve
-                  </button>
-                  <button className="px-4 py-2.5 rounded-xl text-sm font-medium bg-white/5 text-gray-400 hover:bg-white/10 transition-colors">
-                    Review
-                  </button>
-                </div>
+                </span>
+                <span className="text-[13px] font-semibold text-white truncate">{item.agent}</span>
+              </div>
+              {/* Row 2: action */}
+              <p className="text-xs text-gray-300 mb-1.5 leading-relaxed">{item.action}</p>
+              {/* Row 3: details */}
+              <div className="space-y-0.5 mb-2">
+                {item.details.map((detail, i) => (
+                  <p key={i} className="text-[11px] text-gray-500 leading-relaxed">{detail}</p>
+                ))}
+              </div>
+              {/* Row 4: recommendation */}
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/40 mb-3">
+                <span className={`text-[11px] font-medium ${
+                  item.recommendationType === 'approve' ? 'text-emerald-400' :
+                  item.recommendationType === 'flag' ? 'text-amber-400' : 'text-indigo-400'
+                }`}>
+                  💡 {item.recommendationType === 'approve' ? 'Recommended: Approve' :
+                   item.recommendationType === 'flag' ? 'Recommended: Approve with flag' : 'Recommended: Review first'}
+                </span>
+              </div>
+              {/* Row 5: buttons */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleApprove(item)}
+                  className="flex-1 py-2 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 transition-colors"
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={() => handleReview(item)}
+                  className="flex-1 py-2 rounded-lg text-xs font-medium bg-white/5 text-gray-400 hover:bg-white/10 transition-colors"
+                >
+                  Review
+                </button>
               </div>
             </div>
           );
         })}
       </div>
 
-      <button className="w-full py-4 rounded-xl text-base font-semibold bg-indigo/20 text-indigo-400 hover:bg-indigo/30 transition-colors border border-indigo/30">
-        Process All Recommendations
-      </button>
+      {/* Processed items — compact rows */}
+      {pendingApprovals.filter((i) => itemStates[i.id]).length > 0 && (
+        <div>
+          <p className="text-xs text-gray-600 mb-2">Processed ({pendingApprovals.filter((i) => itemStates[i.id]).length})</p>
+          <div className="rounded-xl border border-white/5 overflow-hidden">
+            {pendingApprovals.filter((i) => itemStates[i.id]).map((item, idx, arr) => {
+              const priority = priorityConfig[item.priority];
+              const state = itemStates[item.id];
+              return (
+                <div
+                  key={item.id}
+                  className={`flex items-center gap-3 px-4 py-2.5 bg-black/40 ${idx < arr.length - 1 ? 'border-b border-white/[0.03]' : ''}`}
+                >
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${priority.bg} ${priority.text}`}>
+                    {item.priority}
+                  </span>
+                  <span className="text-xs text-gray-400 flex-1 truncate">
+                    {item.agent} • {item.action}
+                  </span>
+                  <span className={`text-xs font-medium flex-shrink-0 ${
+                    state === 'approved' ? 'text-emerald-400' : 'text-amber-400'
+                  }`}>
+                    {state === 'approved' ? 'Approved' : 'In Review'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {pendingApprovals.filter((i) => !itemStates[i.id]).length > 0 && !allProcessed && (
+        <button
+          onClick={handleProcessAll}
+          className="w-full py-3 rounded-xl text-sm font-semibold bg-indigo/20 text-indigo-400 hover:bg-indigo/30 transition-colors border border-indigo/30"
+        >
+          Process All Recommendations
+        </button>
+      )}
     </div>
   );
 }
 
-function HealthIssuesWidget() {
+function HealthIssuesWidget({ onFixNow, onFixAll }: { onFixNow?: (agent: string, issue: string) => void; onFixAll?: () => void }) {
   const statusConfig = {
     error: { icon: XCircle, bg: 'bg-rose-500/20', text: 'text-rose-400', label: 'ERROR' },
     warning: { icon: AlertTriangle, bg: 'bg-amber-500/20', text: 'text-amber-400', label: 'WARNING' },
@@ -319,13 +399,7 @@ function HealthIssuesWidget() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-white mb-1">Agent Health Issues</h2>
-          <p className="text-sm text-gray-500">Requires attention • {healthIssues.length} issues</p>
-        </div>
-        <AlertCircle className="w-8 h-8 text-rose-400" />
-      </div>
+      <p className="text-sm text-gray-500">Requires attention • {healthIssues.length} issues</p>
 
       <div className="space-y-4">
         {healthIssues.map((item) => {
@@ -355,7 +429,10 @@ function HealthIssuesWidget() {
                     <span className="text-sm text-indigo-300">{item.recommendation}</span>
                   </div>
                 </div>
-                <button className="px-4 py-2.5 rounded-xl text-sm font-medium bg-indigo/20 text-indigo-400 hover:bg-indigo/30 transition-colors flex-shrink-0">
+                <button
+                  onClick={() => onFixNow?.(item.agent, item.issue)}
+                  className="px-4 py-2.5 rounded-xl text-sm font-medium bg-indigo/20 text-indigo-400 hover:bg-indigo/30 transition-colors flex-shrink-0"
+                >
                   Fix Now
                 </button>
               </div>
@@ -364,7 +441,10 @@ function HealthIssuesWidget() {
         })}
       </div>
 
-      <button className="w-full py-4 rounded-xl text-base font-semibold bg-indigo/20 text-indigo-400 hover:bg-indigo/30 transition-colors border border-indigo/30">
+      <button
+        onClick={() => onFixAll?.()}
+        className="w-full py-4 rounded-xl text-base font-semibold bg-indigo/20 text-indigo-400 hover:bg-indigo/30 transition-colors border border-indigo/30"
+      >
         Apply All Recommended Fixes
       </button>
     </div>
@@ -374,13 +454,7 @@ function HealthIssuesWidget() {
 function DashboardWidget() {
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-white mb-1">Agent Fleet Dashboard</h2>
-          <p className="text-sm text-gray-500">Real-time performance overview</p>
-        </div>
-        <Activity className="w-8 h-8 text-indigo-400" />
-      </div>
+      <p className="text-sm text-gray-500">Real-time performance overview</p>
 
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-dark-50 rounded-2xl p-6 border border-white/5">
@@ -459,15 +533,7 @@ function WhatsAppOAuthWidget({ stage }: { stage: 'qr' | 'verifying' | 'connected
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-white mb-1">Connect WhatsApp</h2>
-          <p className="text-sm text-gray-500">OAuth Configuration • WhatsApp Business API</p>
-        </div>
-        <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center">
-          <Smartphone className="w-6 h-6 text-emerald-400" />
-        </div>
-      </div>
+      <p className="text-sm text-gray-500">OAuth Configuration • WhatsApp Business API</p>
 
       {/* Progress Steps */}
       <div className="flex items-center gap-3">
@@ -650,13 +716,439 @@ function WhatsAppOAuthWidget({ stage }: { stage: 'qr' | 'verifying' | 'connected
   );
 }
 
+const runAgentTeams = [
+  {
+    id: 'team-1',
+    name: 'OMS Agent for Multichannel Orders and Inventory and Fulfillment v1',
+    description: 'Unified single-agent OMS/DI operator for Shopify-first multichannel orders, inventory sync, and fulfillment orchestration',
+    status: 'inactive' as const,
+    tasksToday: 10,
+    accuracy: 100.0,
+    tokens: 0,
+    agents: [{ name: 'OMS Agent for Multichannel Orders and Inventory and Fulfillment v2', emoji: '🛒' }],
+    version: 'v7',
+  },
+  {
+    id: 'team-2',
+    name: 'Email Draft Confirmation Assistant',
+    description: 'Drafts an email subject and body from user input, requires explicit manual approval before sending',
+    status: 'inactive' as const,
+    tasksToday: 0,
+    accuracy: 0,
+    tokens: 0,
+    agents: [{ name: 'Email Draft & Send Assistant Agent', emoji: '✉️' }],
+    version: 'v7',
+  },
+  {
+    id: 'team-3',
+    name: 'Warehouse Network Design Agent',
+    description: 'Single-agent registry package for US warehouse network design, grounded in real geospatial and logistics data',
+    status: 'inactive' as const,
+    tasksToday: 3,
+    accuracy: 26.7,
+    tokens: 0,
+    agents: [{ name: 'Warehouse Network Design Agent', emoji: '🏭' }],
+    version: 'v5',
+  },
+  {
+    id: 'team-4',
+    name: 'WES Pick Task Execution Agent',
+    description: 'Reusable API-first manual-station WES pick execution agent for OMRON shelf-to-person systems',
+    status: 'config_required' as const,
+    tasksToday: 0,
+    accuracy: 0,
+    tokens: 0,
+    agents: [{ name: 'WES Pick Task Execution Agent', emoji: '📦' }],
+    version: 'v22',
+  },
+];
+
+const runAgentStatusConfig: Record<string, { label: string; color: string; bgColor: string; dotColor: string }> = {
+  running: { label: 'Running', color: 'text-emerald-400', bgColor: 'bg-emerald-500/20', dotColor: 'bg-emerald-400' },
+  inactive: { label: 'Inactive', color: 'text-rose-400', bgColor: 'bg-rose-500/20', dotColor: 'bg-rose-400' },
+  config_required: { label: 'Config Required', color: 'text-amber-400', bgColor: 'bg-amber-500/20', dotColor: 'bg-amber-400' },
+  error: { label: 'Error', color: 'text-rose-400', bgColor: 'bg-rose-500/20', dotColor: 'bg-rose-400' },
+};
+
+function ExecLogDetailPanel({ scenarioParams }: { scenarioParams: PanelParam[] }) {
+  const execLogMsg = scenario1Messages.find((m) => m.card?.type === 'exec-log');
+  const resultMsg = scenario1Messages.find((m) => m.card?.type === 'result-card');
+  const logLines = execLogMsg?.card?.lines || [];
+  const resultStats = resultMsg?.card?.stats || [];
+  const [visibleCount, setVisibleCount] = useState(0);
+  const logScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (visibleCount < logLines.length) {
+      const timer = setTimeout(() => setVisibleCount((c) => c + 1), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [visibleCount, logLines.length]);
+
+  useEffect(() => {
+    if (logScrollRef.current) {
+      logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight;
+    }
+  }, [visibleCount]);
+
+  const statusColor = (s: string) => {
+    if (s === 'ok') return 'text-emerald-400';
+    if (s === 'info') return 'text-blue-400';
+    if (s === 'warn') return 'text-amber-400';
+    return 'text-gray-500';
+  };
+  const statusIcon = (s: string) => {
+    if (s === 'ok') return '✓';
+    if (s === 'info') return '●';
+    if (s === 'warn') return '⚠';
+    return '·';
+  };
+
+  const allDone = visibleCount >= logLines.length;
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-3 gap-3">
+        {resultStats.map(([num, label], i) => (
+          <div key={i} className="p-3 rounded-xl bg-black/40 border border-white/[0.04]">
+            <div className="text-lg font-bold text-white">{num}</div>
+            <div className="text-[10px] text-gray-500 mt-0.5">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2">
+        {allDone ? (
+          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/12 text-emerald-400">COMPLETED</span>
+        ) : (
+          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo/20 text-indigo-300">RUNNING</span>
+        )}
+        <span className="text-[11px] text-gray-500">Duration: 1m 06s</span>
+      </div>
+
+      <div className="rounded-xl bg-[#08080e] border border-white/[0.06] overflow-hidden">
+        <div className="px-3.5 py-2.5 border-b border-white/[0.04] flex items-center gap-2">
+          <span className="text-[11px] font-semibold text-gray-300">Execution Log</span>
+          <span className="text-[10px] text-gray-600">{visibleCount}/{logLines.length} entries</span>
+        </div>
+        <div ref={logScrollRef} className="p-3.5 font-mono text-[11px] leading-[2] space-y-0 max-h-[280px] overflow-y-auto">
+          {logLines.slice(0, visibleCount).map((line, i) => (
+            <div key={i} className="flex gap-2.5 items-start">
+              <span className="text-gray-600 flex-shrink-0 w-[60px]">{line.time}</span>
+              <span className={`flex-shrink-0 w-3 text-center ${statusColor(line.status)}`}>{statusIcon(line.status)}</span>
+              <span className={statusColor(line.status)}>{line.text}</span>
+            </div>
+          ))}
+          {!allDone && (
+            <div className="flex items-center gap-2 py-1">
+              <div className="w-3 h-3 rounded-full border-2 border-indigo border-t-transparent animate-spin" />
+              <span className="text-[10px] text-gray-600">Loading...</span>
+            </div>
+          )}
+        </div>
+        {allDone && (
+          <div className="px-3.5 py-2 border-t border-white/[0.04]">
+            <div className="h-[3px] rounded-sm bg-gradient-to-r from-indigo to-[#7F43AD]" />
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl bg-black/40 border border-white/[0.04] overflow-hidden">
+        <div className="px-3.5 py-2.5 border-b border-white/[0.04]">
+          <span className="text-[11px] font-semibold text-gray-300">Parameters Used</span>
+        </div>
+        <div className="p-3.5 space-y-1.5">
+          {scenarioParams.filter((p) => p.value.trim()).map((p, i) => (
+            <div key={i} className="flex justify-between items-center py-1">
+              <span className="text-[11px] text-gray-500">{p.name}</span>
+              <span className="text-[11px] text-gray-300 font-medium">{p.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RunAgentWidget({ onRun }: { onRun?: (teamName: string, emoji: string, version: string, status: string) => void }) {
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-gray-500">Select a team to run or manage</p>
+
+      <div className="space-y-4">
+        {runAgentTeams.map((team) => {
+          const status = runAgentStatusConfig[team.status];
+          return (
+            <div key={team.id} className="bg-dark-50 rounded-2xl border border-white/5 p-5 hover:border-indigo/30 transition-all">
+              <div className="flex items-start gap-3 mb-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo/20 flex items-center justify-center flex-shrink-0">
+                  <Users className="w-5 h-5 text-indigo-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <h3 className="text-sm font-semibold text-indigo-300 leading-snug">{team.name}</h3>
+                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium ${status.bgColor} ${status.color} shrink-0`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${status.dotColor} ${team.status === 'running' ? 'animate-pulse' : ''}`} />
+                      {status.label}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium text-gray-500 bg-white/5 shrink-0">{team.version}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 line-clamp-2">{team.description}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 mb-3 pl-[52px]">
+                <div>
+                  <p className="text-base font-semibold text-white">{team.tasksToday}</p>
+                  <p className="text-[10px] text-gray-500">Tasks (today)</p>
+                </div>
+                <div>
+                  <p className={`text-base font-semibold ${team.accuracy > 0 ? 'text-emerald-400' : 'text-gray-400'}`}>
+                    {team.accuracy > 0 ? `${team.accuracy}%` : '—'}
+                  </p>
+                  <p className="text-[10px] text-gray-500">Accuracy</p>
+                </div>
+              <div>
+                  <p className="text-base font-semibold text-white">{team.tokens > 0 ? team.tokens.toLocaleString() : '0'}</p>
+                  <p className="text-[10px] text-gray-500">Tokens</p>
+                </div>
+              </div>
+
+              <div className="pl-[52px] mb-3">
+                <p className="text-[10px] text-gray-500 mb-1.5">Team Agents</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {team.agents.map((agent, idx) => (
+                    <div key={idx} className="h-6 px-2.5 rounded-full bg-black/60 flex items-center gap-1.5">
+                      <span className="text-xs">{agent.emoji}</span>
+                      <span className="text-[11px] text-gray-300">{agent.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-1 pt-3 border-t border-white/5">
+                <button
+                  onClick={() => onRun?.(team.name, team.agents[0]?.emoji || '🤖', team.version, team.status)}
+                  className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  {team.status === 'running' ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                </button>
+                <button className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors">
+                  <Clock className="w-4 h-4" />
+                </button>
+                <button className="p-2 rounded-lg text-gray-400 hover:text-indigo-300 hover:bg-indigo/10 transition-colors">
+                  <Code className="w-4 h-4" />
+                </button>
+                <button className="p-2 rounded-lg text-gray-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+const HEALTH_DISPLAY_LIMIT = 3;
+
+function WelcomeWidget({ onQuickAction, onFixNow, onViewAllIssues }: {
+  onQuickAction: (action: string) => void;
+  onFixNow: (agent: string, issue: string) => void;
+  onViewAllIssues: () => void;
+}) {
+  const [isLoading, setIsLoading] = useState(true);
+  const [healthOpen, setHealthOpen] = useState(false);
+  const [sentItems, setSentItems] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const timer = setTimeout(() => setIsLoading(false), 1200);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleRefresh = () => {
+    setIsLoading(true);
+    setSentItems(new Set());
+    setTimeout(() => setIsLoading(false), 1500);
+  };
+
+  const handleFixNow = (id: string, agent: string, issue: string) => {
+    setSentItems(prev => new Set(prev).add(id));
+    onFixNow(agent, issue);
+  };
+
+  const displayedIssues = healthIssues.slice(0, HEALTH_DISPLAY_LIMIT);
+
+  return (
+    <div className="w-full max-w-[660px]">
+      {/* Greeting */}
+      <p className="text-sm text-gray-400 mb-5 leading-relaxed">
+        <span className="text-gray-200 font-semibold">Hi, I'm your Agent Steward.</span><br />
+        I manage your AI workforce — handling issues, running agents, and processing approvals.
+      </p>
+
+      {/* Overview Card */}
+      <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-4 mb-6">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Overview</span>
+          <button
+            onClick={handleRefresh}
+            className="text-gray-500 hover:text-indigo-400 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+
+        {/* Dashboard Grid */}
+        <div className="grid grid-cols-4 divide-x divide-white/[0.04]">
+          {[
+            { label: 'Active', value: `${dashboardData.summary.activeAgents}/${dashboardData.summary.totalAgents}`, sub: 'agents online' },
+            { label: 'Tasks Today', value: String(dashboardData.summary.tasksToday), sub: '+12.5% vs last week', good: false },
+            { label: 'Success Rate', value: `${dashboardData.summary.successRate}%`, sub: 'target: 95%', good: true },
+            { label: 'Spend', value: `$${dashboardData.summary.monthlySpend.toFixed(0)}`, sub: `of $${dashboardData.summary.monthlyBudget.toLocaleString()} budget` },
+          ].map((cell) => (
+            <div key={cell.label} className="text-center py-2 px-1">
+              <div className="text-[10px] text-gray-500 uppercase tracking-tight mb-1">{cell.label}</div>
+              {isLoading ? (
+                <>
+                  <div className="h-[18px] w-10 mx-auto mb-1 rounded bg-gradient-to-r from-white/[0.03] via-white/[0.06] to-white/[0.03] bg-[length:200%_100%] animate-pulse" />
+                  <div className="h-2 w-14 mx-auto rounded bg-gradient-to-r from-white/[0.03] via-white/[0.06] to-white/[0.03] bg-[length:200%_100%] animate-pulse" />
+                </>
+              ) : (
+                <>
+                  <div className={`text-lg font-bold ${cell.good ? 'text-emerald-400' : 'text-white'}`}>{cell.value}</div>
+                  <div className="text-[10px] text-gray-600 mt-0.5">{cell.sub}</div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Needs Attention */}
+        <div className="border-t border-white/[0.06] mt-3 pt-3">
+          <button
+            onClick={() => setHealthOpen(!healthOpen)}
+            className="w-full flex items-center justify-between group"
+          >
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-400">
+              <AlertTriangle className="w-3 h-3 text-amber-400" />
+              Needs Attention
+              {!isLoading && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-400">
+                  {healthIssues.length}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] text-gray-600 group-hover:text-gray-400 flex items-center gap-1 transition-colors">
+              {healthOpen ? 'Hide' : 'Show'}
+              {healthOpen ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+            </span>
+          </button>
+
+          {healthOpen && (
+            <div className="mt-2.5 space-y-0">
+              {displayedIssues.map((item) => {
+                const isSent = sentItems.has(item.id);
+                return (
+                  <div
+                    key={item.id}
+                    className={`flex items-center gap-2 py-2 border-b border-white/[0.03] last:border-0 transition-opacity ${isSent ? 'opacity-40' : ''}`}
+                  >
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase flex-shrink-0 ${
+                      isSent ? 'bg-indigo-500/15 text-indigo-400' :
+                      item.status === 'error' ? 'bg-rose-500/10 text-rose-400' :
+                      item.status === 'warning' ? 'bg-amber-500/10 text-amber-400' :
+                      'bg-blue-500/10 text-blue-400'
+                    }`}>
+                      {isSent ? 'SENT' : item.status === 'error' ? 'ERROR' : item.status === 'warning' ? 'WARN' : 'CONFIG'}
+                    </span>
+                    <span className="text-xs font-medium text-gray-300 flex-shrink-0 min-w-[140px]">{item.agent}</span>
+                    <span className="text-[11px] text-gray-500 flex-1 truncate">{item.issue}</span>
+                    {isSent ? (
+                      <span className="text-[10px] font-medium text-indigo-400 flex items-center gap-1 flex-shrink-0">✓ Sent</span>
+                    ) : (
+                      <button
+                        onClick={() => handleFixNow(item.id, item.agent, item.issue)}
+                        className="text-[10px] font-medium px-2.5 py-1 rounded bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 transition-colors flex-shrink-0"
+                      >
+                        Fix Now
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+
+              {healthIssues.length > HEALTH_DISPLAY_LIMIT && (
+                <div className="pt-2 mt-2 border-t border-white/[0.03]">
+                  <button
+                    onClick={onViewAllIssues}
+                    className="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors"
+                  >
+                    View all issues
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <p className="text-[11px] text-gray-600 mb-2">What would you like to do?</p>
+      <div className="grid grid-cols-2 gap-1">
+        {[
+          { key: 'overview', icon: Rocket, iconClass: 'bg-indigo-500/10 text-indigo-400', label: 'AI Workforce Overview', desc: 'Real-time performance dashboard' },
+          { key: 'approvals', icon: CheckCircle, iconClass: 'bg-emerald-500/10 text-emerald-400', label: 'Approval Decisions', desc: 'Review pending approvals' },
+          { key: 'health', icon: AlertTriangle, iconClass: 'bg-amber-500/10 text-amber-400', label: 'Workforce Health Monitor', desc: 'Check agent health status' },
+          { key: 'run-agent', icon: Wrench, iconClass: 'bg-blue-500/10 text-blue-400', label: 'Run Agent', desc: 'Configure and execute agents' },
+        ].map((action) => (
+          <button
+            key={action.key}
+            onClick={() => onQuickAction(action.key)}
+            className="group flex items-center gap-2 p-2.5 rounded-lg hover:bg-white/[0.05] transition-colors text-left"
+          >
+            <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${action.iconClass} group-hover:brightness-125 transition-all`}>
+              <action.icon className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <div className="text-xs font-medium text-gray-300 group-hover:text-white transition-colors">{action.label}</div>
+              <div className="text-[10px] text-gray-600 group-hover:text-gray-400 transition-colors">{action.desc}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Steward() {
   const location = useLocation();
   const [messages, setMessages] = useState<ChatMessage[]>(initialConversation);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [typingStatus, setTypingStatus] = useState('');
   const [currentA2UI, setCurrentA2UI] = useState<string | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+  const [runAgentMode, setRunAgentMode] = useState(false);
+  const [postMessages, setPostMessages] = useState<ChatMessage[]>([]);
+  const [runAgentInfo, setRunAgentInfo] = useState<{ name: string; emoji: string; version: string; status?: string } | null>(null);
+  const [scenarioParams, setScenarioParams] = useState<PanelParam[]>(scenario1PanelParams);
+  const [highlightFields, setHighlightFields] = useState<string[]>([]);
+  const [panelEditing, setPanelEditing] = useState(false);
+  const [paramsSnapshot, setParamsSnapshot] = useState<PanelParam[]>([]);
+  const [visibleScenarioCount, setVisibleScenarioCount] = useState(1); // show only s1-0 initially
+  // Config phase state
+  const [configPhase, setConfigPhase] = useState(false);
+  const [configParams, setConfigParams] = useState<ConfigField[]>(configFields.map((f) => ({ ...f })));
+  const [configHighlightFields, setConfigHighlightFields] = useState<string[]>([]);
+  const [visibleConfigCount, setVisibleConfigCount] = useState(0);
+  const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set());
+  const [confirmedCardId, setConfirmedCardId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -664,9 +1156,229 @@ export default function Steward() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const handleParamChange = useCallback((name: string, value: string) => {
+    setScenarioParams((prev) =>
+      prev.map((p) =>
+        p.name === name
+          ? { ...p, value, status: value.trim() ? 'filled' : (p.status === 'optional' ? 'optional' : 'required') }
+          : p
+      )
+    );
+  }, []);
+
+  const handleConfigParamChange = useCallback((name: string, value: string) => {
+    setConfigParams((prev) =>
+      prev.map((f) =>
+        f.name === name ? { ...f, value } : f
+      )
+    );
+  }, []);
+
+  const handleEditStart = useCallback(() => {
+    setParamsSnapshot(scenarioParams.map((p) => ({ ...p })));
+    setPanelEditing(true);
+  }, [scenarioParams]);
+
+  const handleEditCancel = useCallback(() => {
+    setScenarioParams(paramsSnapshot);
+    setPanelEditing(false);
+  }, [paramsSnapshot]);
+
+  const handleConfirm = useCallback(() => {
+    setPanelEditing(false);
+  }, []);
+
+  const handleClearParamTimers = useCallback(() => {
+    runAgentFlowTimers.current.forEach(clearTimeout);
+    runAgentFlowTimers.current = [];
+    // Reset to only show the first message (the card being edited)
+    if (configPhase) {
+      setVisibleConfigCount(1); // only c1-0
+    } else {
+      setVisibleScenarioCount(1); // only s1-0
+    }
+    // Skip intermediate natural language messages for when we advance later
+    setSkippedIds(new Set(['s1-1', 's1-2', 's1-3', 's1-4', 's1-5', 's1-6', 's1-7', 's1-8', 's1-9', 'c1-1', 'c1-2', 'c1-3', 'c1-4', 'c1-5', 'c1-6']));
+  }, [configPhase]);
+
+  const handleRun = useCallback(() => {
+    // Clear any pending collection timers (but don't set skippedIds —
+    // that's only for the card-edit path, handled by onEdit callback)
+    runAgentFlowTimers.current.forEach(clearTimeout);
+    runAgentFlowTimers.current = [];
+    // s1-10: user message "Starting OMS Agent v7..."
+    setVisibleScenarioCount(11);
+    // s1-11: typing "Executing OMS Agent..." — pause so user reads the confirm message
+    setTimeout(() => setVisibleScenarioCount(12), 2000);
+    // s1-12: exec-log card
+    setTimeout(() => setVisibleScenarioCount(13), 3500);
+    // s1-13: result card — wait for log animation to finish
+    setTimeout(() => setVisibleScenarioCount(14), 7500);
+  }, []);
+
+  // Save partial edits — send a user message with filled params, steward continues collecting
+  const handleSavePartial = useCallback((cardId: string, currentRows: [string, string, boolean?][]) => {
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const filledParams = currentRows
+      .filter(([, v]) => v.trim())
+      .map(([k, v]) => `**${k}**: ${v}`)
+      .join(', ');
+    const isConfig = cardId.startsWith('c1');
+    const content = isConfig
+      ? `Update configuration: ${filledParams}`
+      : `Update parameters: ${filledParams}`;
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content,
+      timestamp: now,
+    };
+    setMessages((prev) => [...prev, userMsg]);
+  }, []);
+
+  // Config complete → transition to param collection
+  const handleConfigComplete = useCallback(() => {
+    setConfigPhase(false);
+    setVisibleConfigCount(configScenarioMessages.length); // freeze config messages
+    setCurrentA2UI(null); // close config sidebar
+    setVisibleScenarioCount(1);
+
+    const paramTimers: ReturnType<typeof setTimeout>[] = [];
+    // s1-1 ~ s1-3 (partial card) — 6s delay so user can click Edit on s1-0
+    paramTimers.push(setTimeout(() => setVisibleScenarioCount(4), 6000));
+    // s1-4 ~ s1-6 (complete card)
+    paramTimers.push(setTimeout(() => setVisibleScenarioCount(7), 9000));
+    // s1-7 ~ s1-9 (correction card)
+    paramTimers.push(setTimeout(() => setVisibleScenarioCount(10), 12000));
+    runAgentFlowTimers.current.push(...paramTimers);
+  }, []);
+
+  const startRunAgentFlow = useCallback(() => {
+    const now = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    // Step 0: user message "Run an agent"
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: 'Run an agent',
+      timestamp: now(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setTypingStatus('Thinking...');
+    setIsTyping(true);
+
+    // Step 1 (1.5s): steward asks about scenario + open RunAgentWidget
+    timers.push(setTimeout(() => {
+      const stewardMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'steward',
+        content: 'RUN_AGENT_INQUIRY',
+        timestamp: now(),
+      };
+      setMessages((prev) => [...prev, stewardMsg]);
+      setIsTyping(false);
+      setCurrentA2UI('RUN_AGENT_VIEW');
+    }, 1500));
+
+    // Step 2 (4s): user describes their need
+    timers.push(setTimeout(() => {
+      const userDesc: ChatMessage = {
+        id: (Date.now() + 2).toString(),
+        role: 'user',
+        content: 'I need to process Shopify orders and sync inventory',
+        timestamp: now(),
+      };
+      setMessages((prev) => [...prev, userDesc]);
+      setTypingStatus('Matching your request to available agents...');
+      setIsTyping(true);
+    }, 4000));
+
+    // Step 3 (6.5s): steward recommends agent
+    timers.push(setTimeout(() => {
+      const recommendMsg: ChatMessage = {
+        id: (Date.now() + 3).toString(),
+        role: 'steward',
+        content: 'RUN_AGENT_RECOMMEND',
+        timestamp: now(),
+      };
+      setMessages((prev) => [...prev, recommendMsg]);
+      setIsTyping(false);
+    }, 6500));
+
+    // Step 4 (9s): user confirms "Yes, let's set it up"
+    timers.push(setTimeout(() => {
+      const userConfirm: ChatMessage = {
+        id: (Date.now() + 4).toString(),
+        role: 'user',
+        content: 'Yes, let\'s set it up',
+        timestamp: now(),
+      };
+      setMessages((prev) => [...prev, userConfirm]);
+      setTypingStatus('Setting up agent...');
+      setIsTyping(true);
+    }, 9000));
+
+    // Step 5 (11s): enter runAgentMode → config phase first, then param collection
+    timers.push(setTimeout(() => {
+      setIsTyping(false);
+      setRunAgentMode(true);
+      setRunAgentInfo({ name: 'OMS Agent for Multichannel Orders and Inventory and Fulfillment v1', emoji: '🛒', version: 'v7', status: 'config_required' });
+
+      // Start with config phase
+      setConfigPhase(true);
+      setConfigParams(configFields.map((f) => ({ ...f })));
+      setVisibleConfigCount(1);
+      setVisibleScenarioCount(0);
+      // No sidebar during collection
+
+      const allTimers: ReturnType<typeof setTimeout>[] = [];
+
+      // Config Round 1: show c1-1 ~ c1-3
+      allTimers.push(setTimeout(() => setVisibleConfigCount(4), 1500));
+
+      // Config Round 2: show c1-4 ~ c1-6 (confirm card) → open sidebar with filled config
+      allTimers.push(setTimeout(() => setVisibleConfigCount(7), 4500));
+
+      // Config confirm → set confirmed on c1-6, show user message c1-7
+      allTimers.push(setTimeout(() => {
+        setConfirmedCardId('c1-6');
+        setVisibleConfigCount(8); // c1-0 ~ c1-7 (user confirm message)
+      }, 8000));
+
+      // Config done → show c1-8 transition message → switch to param phase
+      allTimers.push(setTimeout(() => {
+        setVisibleConfigCount(configScenarioMessages.length);
+        setConfigPhase(false);
+        setCurrentA2UI(null); // close config sidebar
+        setVisibleScenarioCount(1);
+      }, 10000));
+
+      // Param Round 1: show s1-1 ~ s1-3 (partial card) — 6s delay so user can click Edit on s1-0
+      allTimers.push(setTimeout(() => setVisibleScenarioCount(4), 16000));
+
+      // Param Round 2: show s1-4 ~ s1-6 (complete card)
+      allTimers.push(setTimeout(() => setVisibleScenarioCount(7), 19000));
+
+      // Param Round 3 (correction): show s1-7 ~ s1-9
+      allTimers.push(setTimeout(() => setVisibleScenarioCount(10), 22000));
+
+      runAgentFlowTimers.current.push(...allTimers);
+    }, 11000));
+
+    runAgentFlowTimers.current = timers;
+  }, []);
+
+  const runAgentFlowTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => runAgentFlowTimers.current.forEach(clearTimeout);
+  }, []);
+
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, visibleScenarioCount]);
 
   // Handle incoming message from navigation state
   useEffect(() => {
@@ -682,9 +1394,8 @@ export default function Steward() {
       };
       
       setMessages((prev) => [...prev, userMessage]);
+      setTypingStatus('Diagnosing agent issue...');
       setIsTyping(true);
-
-      // Generate Steward response after a delay
       setTimeout(() => {
         const stewardResponse: ChatMessage = {
           id: (Date.now() + 1).toString(),
@@ -714,18 +1425,53 @@ Would you like me to guide you through any of these steps, or would you prefer t
       // Clear the navigation state
       window.history.replaceState({}, document.title);
     }
+
+    // Handle Run Agent navigation from Teams page
+    if (location.state?.runAgent) {
+      const { agentName, agentEmoji, agentVersion } = location.state as {
+        runAgent: boolean;
+        agentName: string;
+        agentEmoji: string;
+        agentVersion: string;
+      };
+      setRunAgentMode(true);
+      setRunAgentInfo({ name: agentName, emoji: agentEmoji, version: agentVersion });
+      setScenarioParams(scenario1PanelParams.map((p) => ({ ...p })));
+      // Auto-advance conversation in three rounds
+      const timers: ReturnType<typeof setTimeout>[] = [];
+
+      // Round 1: show s1-1 ~ s1-3 (partial card)
+      timers.push(setTimeout(() => setVisibleScenarioCount(4), 1500));
+
+      // Round 2: show s1-4 ~ s1-6 (complete card)
+      timers.push(setTimeout(() => setVisibleScenarioCount(7), 4500));
+
+      // Round 3 (correction): show s1-7 ~ s1-9
+      timers.push(setTimeout(() => setVisibleScenarioCount(10), 7500));
+
+      window.history.replaceState({}, document.title);
+      return () => timers.forEach(clearTimeout);
+    }
   }, [location.state]);
 
   // Update A2UI when messages change
+  const currentA2UIRef = useRef(currentA2UI);
+  currentA2UIRef.current = currentA2UI;
+
+  const lastProcessedMsgId = useRef<string | null>(null);
+
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
-    if (lastMessage?.role === 'steward') {
+    if (!lastMessage || lastMessage.id === lastProcessedMsgId.current) return;
+    lastProcessedMsgId.current = lastMessage.id;
+
+    if (lastMessage.role === 'steward') {
       const content = lastMessage.content;
-      if (content === 'DASHBOARD_VIEW' || content === 'APPROVALS_VIEW' || content === 'HEALTH_VIEW' || content === 'WHATSAPP_OAUTH_VIEW' || content.startsWith('TEAM_VIEW:')) {
+      if (content === 'DASHBOARD_VIEW' || content === 'APPROVALS_VIEW' || content === 'HEALTH_VIEW' || content === 'WHATSAPP_OAUTH_VIEW' || content === 'RUN_AGENT_VIEW' || content.startsWith('TEAM_VIEW:')) {
         setCurrentA2UI(content);
       } else if (content === 'CONFIGURATION_OPTIONS') {
         setCurrentA2UI(null);
-      } else if (!content.includes('VIEW')) {
+      } else if (!content.includes('VIEW') && currentA2UIRef.current !== 'APPROVALS_VIEW' && currentA2UIRef.current !== 'HEALTH_VIEW') {
         setCurrentA2UI(null);
       }
     }
@@ -750,6 +1496,7 @@ Would you like me to guide you through any of these steps, or would you prefer t
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setAttachedFiles([]);
+    setTypingStatus(getTypingStatus(input));
     setIsTyping(true);
 
     setTimeout(() => {
@@ -779,21 +1526,50 @@ Would you like me to guide you through any of these steps, or would you prefer t
     setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const getTypingStatus = (input: string): string => {
+    const lower = input.toLowerCase();
+    if (lower.includes('overview') || lower.includes('dashboard') || lower.includes('fleet') || lower.includes('workforce overview')) return 'Analyzing fleet data...';
+    if (lower.includes('approval') || lower.includes('pending')) return 'Reviewing pending approvals...';
+    if (lower.includes('health') || lower.includes('issue') || lower.includes('fix') || lower.includes('error')) return 'Scanning agent health...';
+    if (lower.includes('run agent') || lower.includes('run an agent')) return 'Loading available agents...';
+    if (lower.includes('whatsapp')) return 'Initializing WhatsApp OAuth...';
+    if (lower.includes('configuration') || lower.includes('configure')) return 'Loading configuration options...';
+    if (lower.includes('cost') || lower.includes('budget') || lower.includes('spend')) return 'Calculating cost metrics...';
+    if (lower.includes('team') || lower.includes('wms') || lower.includes('recruiting')) return 'Loading team overview...';
+    return 'Thinking...';
+  };
+
   const handleQuickAction = (action: string) => {
+    // Exit runAgentMode so messages render in the normal chat flow
+    if (runAgentMode) {
+      setRunAgentMode(false);
+      setVisibleScenarioCount(1);
+      setConfigPhase(false);
+      setVisibleConfigCount(0);
+      setConfigParams(configFields.map((f) => ({ ...f })));
+      setConfigHighlightFields([]);
+      setCurrentA2UI(null);
+      setPanelEditing(false);
+      setSkippedIds(new Set());
+    }
+
     let userMessage = '';
     switch (action) {
       case 'overview':
-        userMessage = 'Show me the AI workforce overview';
+        userMessage = 'AI Workforce Overview';
         break;
       case 'approvals':
-        userMessage = 'Show me pending approvals';
+        userMessage = 'Approval Decisions';
         break;
       case 'health':
-        userMessage = 'Check workforce health';
+        userMessage = 'Workforce Health Monitor';
         break;
       case 'configuration':
-        userMessage = 'I need help with configuration';
+        userMessage = 'Configuration';
         break;
+      case 'run-agent':
+        startRunAgentFlow();
+        return;
       case 'whatsapp':
         userMessage = 'Configure WhatsApp';
         break;
@@ -816,6 +1592,7 @@ Would you like me to guide you through any of these steps, or would you prefer t
     };
 
     setMessages((prev) => [...prev, userMsg]);
+    setTypingStatus(getTypingStatus(userMessage));
     setIsTyping(true);
 
     setTimeout(() => {
@@ -830,13 +1607,142 @@ Would you like me to guide you through any of these steps, or would you prefer t
     }, 1500);
   };
 
+  const handleFixNowFromWelcome = (agent: string, issue: string) => {
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: `Fix ${agent}: ${issue}`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setTypingStatus('Diagnosing agent issue...');
+    setIsTyping(true);
+    setTimeout(() => {
+      const stewardResponse: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'steward',
+        content: generateFixNowResponse(agent, issue),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prev) => [...prev, stewardResponse]);
+      setIsTyping(false);
+    }, 400);
+  };
+
+  const handleApproveFromPanel = (agent: string, action: string) => {
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: `Approve ${agent}: ${action}`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setTypingStatus('Processing approval...');
+    setIsTyping(true);
+    setTimeout(() => {
+      const stewardResponse: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'steward',
+        content: `Approved. **${agent}** is now authorized to proceed with: ${action}.`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prev) => [...prev, stewardResponse]);
+      setIsTyping(false);
+    }, 400);
+  };
+
+  const handleProcessAllApprovals = () => {
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: 'Process all pending approval recommendations',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setTypingStatus('Processing all approvals...');
+    setIsTyping(true);
+    setTimeout(() => {
+      const stewardResponse: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'steward',
+        content: `All **${pendingApprovals.length} pending approvals** have been processed based on recommendations:\n\n- **3 approved** directly\n- **1 approved with flag** for manual audit\n\nAll agents have been notified and can proceed with their tasks.`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prev) => [...prev, stewardResponse]);
+      setIsTyping(false);
+    }, 800);
+  };
+
+  const handleFixAllFromPanel = () => {
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: 'Apply all recommended fixes',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setTypingStatus('Applying all recommended fixes...');
+    setIsTyping(true);
+    setTimeout(() => {
+      const agents = healthIssues.map((i) => i.agent).join(', ');
+      const stewardResponse: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'steward',
+        content: `All **${healthIssues.length} recommended fixes** have been applied:\n\n${healthIssues.map((i) => `- **${i.agent}**: ${i.recommendation}`).join('\n')}\n\nI'll monitor these agents and notify you if any issues persist.`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prev) => [...prev, stewardResponse]);
+      setIsTyping(false);
+    }, 800);
+  };
+
+  const handleViewAllIssues = () => {
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: 'Check workforce health',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setTypingStatus('Scanning agent health...');
+    setIsTyping(true);
+    setTimeout(() => {
+      const stewardResponse: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'steward',
+        content: 'HEALTH_VIEW',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prev) => [...prev, stewardResponse]);
+      setIsTyping(false);
+    }, 400);
+  };
+
   const renderMessageContent = (message: ChatMessage) => {
+    // Welcome view — new first-screen
+    if (message.content === 'WELCOME_VIEW') {
+      return (
+        <WelcomeWidget
+          onQuickAction={handleQuickAction}
+          onFixNow={handleFixNowFromWelcome}
+          onViewAllIssues={handleViewAllIssues}
+        />
+      );
+    }
+
     // For A2UI views, only show the text description in chat
     if (message.content === 'DASHBOARD_VIEW') {
       return (
         <div className="w-full">
-          <p className="text-sm text-gray-300">Here's a comprehensive overview of your agent fleet performance. Check the right panel for details.</p>
-          <p className="text-xs text-gray-500 mt-2">{message.timestamp}</p>
+          <p className="text-sm text-gray-300">Here's a comprehensive overview of your agent fleet performance.</p>
+          <PanelCard
+            icon={Activity}
+            iconClass="bg-indigo-500/10 text-indigo-400"
+            title="Agent Fleet Dashboard"
+            onClick={() => setCurrentA2UI('DASHBOARD_VIEW')}
+            isActive={currentA2UI === 'DASHBOARD_VIEW'}
+          />
+          {false && <p className="text-xs text-gray-500 mt-2">{message.timestamp}</p>}
         </div>
       );
     }
@@ -844,9 +1750,15 @@ Would you like me to guide you through any of these steps, or would you prefer t
     if (message.content === 'APPROVALS_VIEW') {
       return (
         <div className="w-full">
-          <p className="text-sm text-gray-300">I've analyzed all pending tasks and prioritized them by urgency and business impact. Review them in the right panel.</p>
-          <p className="text-sm text-gray-300 mt-2">Would you like me to process these approvals based on my recommendations?</p>
-          <p className="text-xs text-gray-500 mt-2">{message.timestamp}</p>
+          <p className="text-sm text-gray-300">I've analyzed all pending tasks and prioritized them by urgency and business impact.</p>
+          <PanelCard
+            icon={Clock}
+            iconClass="bg-amber-500/10 text-amber-400"
+            title="Pending Approvals"
+            onClick={() => setCurrentA2UI('APPROVALS_VIEW')}
+            isActive={currentA2UI === 'APPROVALS_VIEW'}
+          />
+          {false && <p className="text-xs text-gray-500 mt-2">{message.timestamp}</p>}
         </div>
       );
     }
@@ -854,9 +1766,15 @@ Would you like me to guide you through any of these steps, or would you prefer t
     if (message.content === 'HEALTH_VIEW') {
       return (
         <div className="w-full">
-          <p className="text-sm text-gray-300">I've detected some anomalies in your agent fleet that require attention. See the details in the right panel.</p>
-          <p className="text-sm text-gray-300 mt-2">Should I proceed with the recommended fixes?</p>
-          <p className="text-xs text-gray-500 mt-2">{message.timestamp}</p>
+          <p className="text-sm text-gray-300">I've detected some anomalies in your agent fleet that require attention.</p>
+          <PanelCard
+            icon={AlertCircle}
+            iconClass="bg-rose-500/10 text-rose-400"
+            title="Agent Health Issues"
+            onClick={() => setCurrentA2UI('HEALTH_VIEW')}
+            isActive={currentA2UI === 'HEALTH_VIEW'}
+          />
+          {false && <p className="text-xs text-gray-500 mt-2">{message.timestamp}</p>}
         </div>
       );
     }
@@ -864,9 +1782,65 @@ Would you like me to guide you through any of these steps, or would you prefer t
     if (message.content === 'WHATSAPP_OAUTH_VIEW') {
       return (
         <div className="w-full">
-          <p className="text-sm text-gray-300">好的，我来帮你配置 WhatsApp Business API。我已经在右侧面板启动了 OAuth 授权流程，请用手机扫描二维码完成连接。</p>
-          <p className="text-sm text-gray-300 mt-2">连接成功后，你的 Agent 就可以通过 WhatsApp 发送和接收消息了。</p>
-          <p className="text-xs text-gray-500 mt-2">{message.timestamp}</p>
+          <p className="text-sm text-gray-300">好的，我来帮你配置 WhatsApp Business API。请在右侧面板完成 OAuth 授权流程。</p>
+          <PanelCard
+            icon={Smartphone}
+            iconClass="bg-emerald-500/10 text-emerald-400"
+            title="Connect WhatsApp"
+            onClick={() => setCurrentA2UI('WHATSAPP_OAUTH_VIEW')}
+            isActive={currentA2UI === 'WHATSAPP_OAUTH_VIEW'}
+          />
+          {false && <p className="text-xs text-gray-500 mt-2">{message.timestamp}</p>}
+        </div>
+      );
+    }
+
+    if (message.content === 'RUN_AGENT_INQUIRY') {
+      return (
+        <div className="w-full">
+          <p className="text-sm text-gray-300 leading-relaxed">What kind of task are you looking to run? For example: order processing, email drafting, warehouse design, or anything else — just describe what you need.</p>
+          <PanelCard
+            icon={Rocket}
+            iconClass="bg-indigo-500/10 text-indigo-400"
+            title="Available Agents"
+            onClick={() => setCurrentA2UI('RUN_AGENT_VIEW')}
+            isActive={currentA2UI === 'RUN_AGENT_VIEW'}
+          />
+          {false && <p className="text-xs text-gray-500 mt-2">{message.timestamp}</p>}
+        </div>
+      );
+    }
+
+    if (message.content === 'RUN_AGENT_RECOMMEND') {
+      return (
+        <div className="w-full">
+          <p className="text-sm text-gray-300 leading-relaxed">Based on your description, I'd recommend this agent:</p>
+          <div className="mt-2.5 p-3.5 rounded-xl bg-[#0d0d12] border border-indigo/20">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-sm font-semibold text-white">OMS Agent for Multichannel Orders</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium text-gray-500 bg-white/5">v7</span>
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/15 text-emerald-400">RECOMMENDED</span>
+            </div>
+            <p className="text-xs text-gray-500 leading-relaxed">Unified single-agent OMS/DI operator for Shopify-first multichannel orders, inventory sync, and fulfillment orchestration.</p>
+          </div>
+          <p className="text-sm text-gray-300 mt-2.5 leading-relaxed">Want me to set it up?</p>
+          {false && <p className="text-xs text-gray-500 mt-2">{message.timestamp}</p>}
+        </div>
+      );
+    }
+
+    if (message.content === 'RUN_AGENT_VIEW') {
+      return (
+        <div className="w-full">
+          <p className="text-sm text-gray-300">Here are your available agent teams. You can start, pause, or manage them.</p>
+          <PanelCard
+            icon={Rocket}
+            iconClass="bg-indigo-500/10 text-indigo-400"
+            title="Run Agent"
+            onClick={() => setCurrentA2UI('RUN_AGENT_VIEW')}
+            isActive={currentA2UI === 'RUN_AGENT_VIEW'}
+          />
+          {false && <p className="text-xs text-gray-500 mt-2">{message.timestamp}</p>}
         </div>
       );
     }
@@ -951,15 +1925,30 @@ Would you like me to guide you through any of these steps, or would you prefer t
 
               <p className="text-sm text-gray-400">I've loaded the full collaboration graph and approval details in the right panel. You can review and take action from there.</p>
             </div>
-            <p className="text-xs text-gray-500 mt-3">{message.timestamp}</p>
+            <PanelCard
+              icon={Users}
+              iconClass="bg-indigo-500/10 text-indigo-400"
+              title={teamName}
+              onClick={() => setCurrentA2UI(message.content)}
+              isActive={currentA2UI === message.content}
+            />
+            {false && <p className="text-xs text-gray-500 mt-3">{message.timestamp}</p>}
           </div>
         );
       }
 
       return (
         <div className="w-full">
-          <p className="text-sm text-gray-300">Here's the overview for <strong className="text-white font-medium">{teamName}</strong>. Check the right panel for details.</p>
-          <p className="text-xs text-gray-500 mt-2">{message.timestamp}</p>
+          <p className="text-sm text-gray-300">Here's the overview for <strong className="text-white font-medium">{teamName}</strong>.</p>
+          <PanelCard
+            icon={Users}
+            iconClass="bg-indigo-500/10 text-indigo-400"
+            title={teamName}
+
+            onClick={() => setCurrentA2UI(message.content)}
+            isActive={currentA2UI === message.content}
+          />
+          {false && <p className="text-xs text-gray-500 mt-2">{message.timestamp}</p>}
         </div>
       );
     }
@@ -997,7 +1986,7 @@ Would you like me to guide you through any of these steps, or would you prefer t
               Configuration
             </button>
           </div>
-          <p className="text-xs text-gray-500 mt-3">{message.timestamp}</p>
+          {false && <p className="text-xs text-gray-500 mt-3">{message.timestamp}</p>}
         </div>
       );
     }
@@ -1035,7 +2024,7 @@ Would you like me to guide you through any of these steps, or would you prefer t
               🔑 API Keys
             </button>
           </div>
-          <p className="text-xs text-gray-500 mt-3">{message.timestamp}</p>
+          {false && <p className="text-xs text-gray-500 mt-3">{message.timestamp}</p>}
         </div>
       );
     }
@@ -1053,13 +2042,59 @@ Would you like me to guide you through any of these steps, or would you prefer t
         }`}>
           {formatMessage(message.content)}
         </div>
-        <p
-          className={`text-xs mt-2 ${
-            message.role === 'user' ? 'text-gray-500' : 'text-gray-600'
-          }`}
-        >
-          {message.timestamp}
-        </p>
+      </div>
+    );
+  };
+
+  const renderScenarioMessage = (msg: ScenarioMessage, isLatestCard: boolean) => {
+    const card = msg.card;
+    const showPanelCard = false; // panel card removed — all param/config collection happens in chat cards
+    return (
+      <div>
+        {msg.content && (
+          <div className={`text-sm whitespace-pre-wrap leading-relaxed ${msg.role === 'user' ? 'text-white' : 'text-gray-300'}`}>
+            {formatMessage(msg.content)}
+          </div>
+        )}
+        {card?.type === 'typing' && <TypingIndicator text={card.typingText || ''} />}
+        {card?.type === 'param-confirm' && (
+          <ParamConfirmCard
+            agentLabel={card.agentLabel || ''}
+            headerLabel={card.headerLabel}
+            rows={card.rows || []}
+            onConfirmRun={() => {
+              setConfirmedCardId(msg.id);
+              if (msg.id.startsWith('c1')) handleConfigComplete();
+              else handleRun();
+            }}
+            onSavePartial={() => handleSavePartial(msg.id, card.rows || [])}
+            panelOpen={false}
+            confirmed={confirmedCardId === msg.id}
+            partial={card.partial}
+            onEdit={card.partial ? handleClearParamTimers : undefined}
+            isLatest={isLatestCard}
+          />
+        )}
+        {card?.type === 'exec-log' && <ExecLogCard lines={card.lines || []} progress={card.progress || 0} done={card.done || false} onViewDetails={() => {
+          setCurrentA2UI('RUN_DETAILS_VIEW');
+        }} />}
+        {card?.type === 'result-card' && (
+          <ResultCard
+            title={card.title || ''}
+            body={card.body || ''}
+            stats={card.stats || []}
+            buttons={card.buttons || []}
+          />
+        )}
+        {showPanelCard && (
+          <PanelCard
+            icon={Settings}
+            iconClass="bg-amber-500/10 text-amber-400"
+            title="Agent Configuration"
+            onClick={() => { setCurrentA2UI('RUN_AGENT_CONFIG_VIEW'); setPanelEditing(false); }}
+            isActive={currentA2UI === 'RUN_AGENT_CONFIG_VIEW'}
+          />
+        )}
       </div>
     );
   };
@@ -1076,41 +2111,170 @@ Would you like me to guide you through any of these steps, or would you prefer t
       case 'DASHBOARD_VIEW':
         return <DashboardWidget />;
       case 'APPROVALS_VIEW':
-        return <ApprovalsWidget />;
+        return <ApprovalsWidget onApprove={handleApproveFromPanel} onProcessAll={handleProcessAllApprovals} />;
       case 'HEALTH_VIEW':
-        return <HealthIssuesWidget />;
+        return <HealthIssuesWidget onFixNow={handleFixNowFromWelcome} onFixAll={handleFixAllFromPanel} />;
       case 'WHATSAPP_OAUTH_VIEW':
         return <WhatsAppOAuthWidget stage="qr" />;
+      case 'RUN_AGENT_VIEW':
+        return <RunAgentWidget onRun={(name, emoji, version, status) => {
+          setRunAgentMode(true);
+          setRunAgentInfo({ name, emoji, version, status });
+
+          if (status === 'config_required') {
+            // Config phase first — no sidebar during collection
+            setConfigPhase(true);
+            setConfigParams(configFields.map((f) => ({ ...f })));
+            setVisibleConfigCount(1);
+            setVisibleScenarioCount(0);
+
+            const cfgTimers: ReturnType<typeof setTimeout>[] = [];
+            cfgTimers.push(setTimeout(() => setVisibleConfigCount(4), 1500));
+            cfgTimers.push(setTimeout(() => setVisibleConfigCount(7), 4500));
+            // Config confirm → set confirmed on c1-6, show user message c1-7
+            cfgTimers.push(setTimeout(() => {
+              setConfirmedCardId('c1-6');
+              setVisibleConfigCount(8);
+            }, 8000));
+            // Config done → show c1-8 transition message → switch to param phase
+            cfgTimers.push(setTimeout(() => {
+              setVisibleConfigCount(configScenarioMessages.length);
+              setConfigPhase(false);
+              setCurrentA2UI(null);
+              setVisibleScenarioCount(1);
+
+              const paramTimers: ReturnType<typeof setTimeout>[] = [];
+              paramTimers.push(setTimeout(() => setVisibleScenarioCount(4), 6000));
+              paramTimers.push(setTimeout(() => setVisibleScenarioCount(7), 9000));
+              paramTimers.push(setTimeout(() => setVisibleScenarioCount(10), 12000));
+              runAgentFlowTimers.current.push(...paramTimers);
+            }, 10000));
+            runAgentFlowTimers.current.push(...cfgTimers);
+          } else {
+            // Already configured — param collection only, no sidebar
+            setVisibleScenarioCount(1);
+
+            const paramTimers: ReturnType<typeof setTimeout>[] = [];
+            paramTimers.push(setTimeout(() => setVisibleScenarioCount(4), 6000));
+            paramTimers.push(setTimeout(() => setVisibleScenarioCount(7), 9000));
+            paramTimers.push(setTimeout(() => setVisibleScenarioCount(10), 12000));
+            runAgentFlowTimers.current.push(...paramTimers);
+          }
+        }} />;
+      case 'EXEC_LOG_VIEW':
+        return <ExecLogDetailPanel scenarioParams={scenarioParams} />;
+      case 'RUN_DETAILS_VIEW':
+        return (
+          <RunDetailsPanel
+            agentName={runAgentInfo?.name || 'OMS Agent v7'}
+            agentDescription="Multichannel order processing with inventory sync and fulfillment routing"
+            params={scenario1PanelParamsFilled}
+            agentFiles={scenario1AgentFiles}
+            fileContents={agentFileContents}
+          />
+        );
       default:
         return null;
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-screen flex flex-col overflow-hidden">
       <Header title="Agent Steward"/>
 
-      <div className="flex-1 flex">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Left: Chat Area */}
-        <div className={`flex flex-col transition-all duration-300 ${currentA2UI ? 'w-[45%]' : 'w-full'}`}>
+        <div className={`flex flex-col overflow-hidden min-h-0 transition-all duration-300 ${currentA2UI ? 'w-[65%]' : 'w-full'}`}>
           <div className="flex-1 overflow-y-auto px-6 py-6">
             <div className="max-w-4xl mx-auto space-y-6">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`${message.role === 'user' ? 'flex justify-end' : ''}`}
-                >
-                  <div className={`${message.role === 'user' ? 'max-w-2xl' : 'max-w-3xl'}`}>
-                    {renderMessageContent(message)}
-                  </div>
-                </div>
-              ))}
+              {runAgentMode ? (
+                <>
+                  {/* Render prior chat history (e.g. scene inquiry from Quick Action flow) */}
+                  {messages.length > 1 ? (
+                    messages.map((message) => (
+                      <div
+                        key={message.id}
+                        className={`${message.role === 'user' ? 'flex justify-end' : ''}`}
+                      >
+                        <div className={`${message.role === 'user' ? 'max-w-2xl rounded-2xl px-4 py-2.5' : 'max-w-3xl'}`} style={message.role === 'user' ? { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)' } : undefined}>
+                          {renderMessageContent(message)}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    /* Fallback: Teams page navigation — show hardcoded initial message */
+                    <div className="flex justify-end">
+                      <div className="max-w-2xl rounded-2xl px-4 py-2.5" style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div className="text-sm text-white">Run {runAgentInfo?.name || 'OMS Agent'}</div>
+                        <p className="text-xs mt-2 text-gray-500">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                      </div>
+                    </div>
+                  )}
+                  {/* Config phase messages (if any) */}
+                  {visibleConfigCount > 0 && (() => {
+                    const visibleMsgs = configScenarioMessages.slice(0, visibleConfigCount).filter((m) => !skippedIds.has(m.id));
+                    const lastMsg = visibleMsgs[visibleMsgs.length - 1];
+                    const stillCollecting = lastMsg?.card?.type === 'param-confirm' || lastMsg?.card?.type === 'typing';
+                    const lastCardId = stillCollecting ? [...visibleMsgs].reverse().find((m) => m.card?.type === 'param-confirm')?.id : undefined;
+                    return visibleMsgs.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`${msg.role === 'user' ? 'flex justify-end' : ''}`}
+                      >
+                        <div className={`${msg.role === 'user' ? 'max-w-2xl rounded-2xl px-4 py-2.5' : 'max-w-3xl'}`} style={msg.role === 'user' ? { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)' } : undefined}>
+                          {renderScenarioMessage(msg, msg.id === lastCardId)}
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                  {/* Param collection messages (after config phase) */}
+                  {!configPhase && (() => {
+                    const visibleMsgs = scenario1Messages.slice(0, visibleScenarioCount).filter((m) => !skippedIds.has(m.id));
+                    const lastMsg = visibleMsgs[visibleMsgs.length - 1];
+                    const stillCollecting = lastMsg?.card?.type === 'param-confirm' || lastMsg?.card?.type === 'typing';
+                    const lastCardId = stillCollecting ? [...visibleMsgs].reverse().find((m) => m.card?.type === 'param-confirm')?.id : undefined;
+                    return visibleMsgs.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`${msg.role === 'user' ? 'flex justify-end' : ''}`}
+                      >
+                        <div className={`${msg.role === 'user' ? 'max-w-2xl rounded-2xl px-4 py-2.5' : 'max-w-3xl'}`} style={msg.role === 'user' ? { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)' } : undefined}>
+                          {renderScenarioMessage(msg, msg.id === lastCardId)}
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                  {/* Post-scenario messages (chip clicks, etc.) */}
+                  {postMessages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={`${message.role === 'user' ? 'flex justify-end' : ''}`}
+                    >
+                      <div className={`${message.role === 'user' ? 'max-w-2xl rounded-2xl px-4 py-2.5' : 'max-w-3xl'}`} style={message.role === 'user' ? { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)' } : undefined}>
+                        {renderMessageContent(message)}
+                      </div>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <>
+                  {messages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={`${message.role === 'user' ? 'flex justify-end' : ''}`}
+                    >
+                      <div className={`${message.role === 'user' ? 'max-w-2xl rounded-2xl px-4 py-2.5' : 'max-w-3xl'}`} style={message.role === 'user' ? { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)' } : undefined}>
+                        {renderMessageContent(message)}
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
 
               {isTyping && (
-                <div className="flex items-center gap-1 px-4 py-3">
-                  <span className="w-2 h-2 bg-indigo rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-2 h-2 bg-indigo rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-2 h-2 bg-indigo rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <div className="flex items-center gap-2.5 px-4 py-3">
+                  <div className="w-4 h-4 rounded-full border-2 border-indigo border-t-transparent animate-spin" />
+                  <span className="text-sm text-gray-400">{typingStatus || 'Thinking...'}</span>
                 </div>
               )}
 
@@ -1120,6 +2284,69 @@ Would you like me to guide you through any of these steps, or would you prefer t
 
           <div className="px-6 py-4 border-t border-white/5">
             <div className="max-w-4xl mx-auto">
+              {/* Quick Actions Bar */}
+              {(messages.length > 1 || runAgentMode) && (
+                <div className="mb-3">
+                  <div className="flex flex-wrap gap-2">
+                    {(() => {
+                      // In runAgentMode: show chips from the last visible steward message
+                      if (runAgentMode) {
+                        const visibleScenario = !configPhase
+                          ? scenario1Messages.slice(0, visibleScenarioCount).filter((m) => !skippedIds.has(m.id))
+                          : [];
+                        const visibleConfig = visibleConfigCount > 0
+                          ? configScenarioMessages.slice(0, visibleConfigCount).filter((m) => !skippedIds.has(m.id))
+                          : [];
+                        const allVisible = [...visibleConfig, ...visibleScenario];
+                        const lastSteward = [...allVisible].reverse().find((m) => m.role === 'steward' && m.chips !== undefined);
+                        const chips = lastSteward?.chips || [];
+                        return chips.map((chip) => (
+                          <button
+                            key={chip}
+                            onClick={() => {
+                              const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                              const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: chip, timestamp: now };
+                              setPostMessages((prev) => [...prev, userMsg]);
+                              // Handle special chip actions
+                              if (chip === 'View run details') setCurrentA2UI('RUN_DETAILS_VIEW');
+                              // Mock steward replies for result chips
+                              const mockReplies: Record<string, string> = {
+                                'Run again with same parameters': 'Got it! Starting **OMS Agent v7** with the same parameters. Initializing execution environment...',
+                                'Run again with different parameters': 'Sure! Which parameters would you like to change for **OMS Agent v7**? You can tell me the specific values or I can show you the full parameter list.',
+                                'Run a different agent': 'Of course! Which agent would you like to run? Here are some available agents:\n\n• **OMS Agent v7** — Order management\n• **Inventory Sync Agent** — Stock synchronization\n• **Payment Reconciler** — Transaction matching\n\nJust let me know which one you\'d like to start.',
+                              };
+                              if (mockReplies[chip]) {
+                                setTimeout(() => {
+                                  const replyTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                  setPostMessages((prev) => [...prev, { id: Date.now().toString(), role: 'steward', content: mockReplies[chip], timestamp: replyTime }]);
+                                }, 1200);
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-400 bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12] hover:text-gray-200 transition-all"
+                          >
+                            {chip}
+                          </button>
+                        ));
+                      }
+                      // Default: static chips
+                      return [
+                        { key: 'overview', label: 'AI Workforce Overview' },
+                        { key: 'approvals', label: 'Approval Decisions' },
+                        { key: 'health', label: 'Workforce Health Monitor' },
+                        { key: 'run-agent', label: 'Run Agent' },
+                      ].map((action) => (
+                        <button
+                          key={action.key}
+                          onClick={() => handleQuickAction(action.key)}
+                          className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-400 bg-white/[0.03] border border-white/[0.06] hoer-white/[0.12] hover:text-gray-200 transition-all"
+                        >
+                          {action.label}
+                        </button>
+                      ));
+                    })()}
+                  </div>
+                </div>
+              )}
               {/* File attachments preview */}
               {attachedFiles.length > 0 && (
                 <div className="mb-3 flex flex-wrap gap-2">
@@ -1183,8 +2410,29 @@ Would you like me to guide you through any of these steps, or would you prefer t
 
         {/* Right: A2UI Panel (conditionally rendered) */}
         {currentA2UI && (
-          <div className="w-[55%] border-l border-white/5 bg-dark-100 overflow-y-auto">
-            <div className="p-6">
+          <div className="w-[35%] border-l border-white/5 bg-dark-100 flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 flex-shrink-0">
+              <h2 className="text-base font-semibold text-white">
+                  {currentA2UI === 'DASHBOARD_VIEW' ? 'Agent Fleet Dashboard' :
+                   currentA2UI === 'APPROVALS_VIEW' ? 'Pending Approvals' :
+                   currentA2UI === 'HEALTH_VIEW' ? 'Agent Health Issues' :
+                   currentA2UI === 'WHATSAPP_OAUTH_VIEW' ? 'Connect WhatsApp' :
+                   currentA2UI === 'RUN_AGENT_VIEW' ? 'Run Agent' :
+                   currentA2UI === 'RUN_AGENT_CONFIG_VIEW' ? 'Agent Configuration' :
+                   currentA2UI === 'EXEC_LOG_VIEW' ? 'Execution Details' :
+                   currentA2UI === 'RUN_DETAILS_VIEW' ? 'Run Details' :
+                   currentA2UI.startsWith('TEAM_VIEW:') ? (stewardTeamsData[currentA2UI.replace('TEAM_VIEW:', '')]?.name || 'Team Overview') :
+                   'Panel'}
+                </h2>
+              <button
+                onClick={() => setCurrentA2UI(null)}
+                className="w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:text-white hover:bg-white/5 transition-colors"
+                title="Collapse panel"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div className={`flex-1 overflow-y-auto p-6`}>
               {renderA2UIPanel()}
             </div>
           </div>
@@ -1293,6 +2541,12 @@ function generateResponse(input: string): string {
     return 'CONFIGURATION_OPTIONS';
   }
 
+  // Check for run agent requests
+  if (lowerInput.includes('run an agent') || lowerInput.includes('run agent') ||
+      lowerInput.includes('execute agent') || lowerInput.includes('start agent')) {
+    return 'RUN_AGENT_VIEW';
+  }
+
   // Check for overview/dashboard requests
   if (lowerInput.includes('overview') || lowerInput.includes('dashboard') || 
       lowerInput.includes('fleet') || lowerInput.includes('performance') ||
@@ -1398,4 +2652,81 @@ I can help you with:
 - **Configuration** - Set up connectors and integrations
 
 What would you like me to focus on?`;
+}
+
+function generateFixNowResponse(agent: string, issue: string): string {
+  const lowerAgent = agent.toLowerCase();
+  const lowerIssue = issue.toLowerCase();
+
+  if (lowerAgent.includes('financial') || lowerIssue.includes('banking api') || lowerIssue.includes('timeout')) {
+    return `I've checked **${agent}** and found the Banking API credentials expired 2 hours ago. Here's what I need to fix this:
+
+1. **Rotate API credentials** — I can generate a new key pair from the Banking API portal. Should I proceed?
+2. **Update rate limit config** — Current limit is 100 req/min, but the agent was hitting 150. I recommend increasing to 200.
+
+Please confirm and I'll apply the changes. Alternatively, paste your new API key here and I'll update the connector settings directly.`;
+  }
+
+  if (lowerAgent.includes('invoice') || lowerIssue.includes('pdf')) {
+    return `I've analyzed the **${agent}** failure logs. The upstream PDF template changed from v2.1 to v3.0 format, which broke the parser.
+
+To fix this, I need to:
+1. **Update the PDF parser module** to support the new template schema
+2. **Re-process the 12 failed invoices** from the last hour
+
+Should I deploy the parser update now? The fix will take about 2 minutes to propagate.`;
+  }
+
+  if (lowerAgent.includes('customer support') || lowerIssue.includes('response time') || lowerIssue.includes('crm')) {
+    return `I've traced the latency spike in **${agent}** to the Salesforce CRM connector. The CRM API is responding in 8.5s instead of the usual 0.3s.
+
+Recommended actions:
+1. **Enable response caching** for non-critical ticket lookups (reduces CRM calls by ~60%)
+2. **Increase timeout threshold** from 5s to 15s to prevent cascading failures
+
+Want me to enable caching now? I can also temporarily route low-priority tickets to skip CRM lookup entirely.`;
+  }
+
+  if (lowerAgent.includes('email campaign') || lowerIssue.includes('bounce')) {
+    return `I've reviewed the **${agent}** bounce report. Found 847 invalid email addresses in the batch imported yesterday from the marketing CSV.
+
+To resolve this:
+1. **Quarantine invalid entries** — I'll move them to a review queue
+2. **Run email validation** on the remaining 3,200 addresses before next send
+
+Should I start the cleanup now? I can also set up automatic validation for future imports.`;
+  }
+
+  if (lowerAgent.includes('data sync') || lowerIssue.includes('sync delay')) {
+    return `The **${agent}** sync delay is caused by heavy load on the source database (CPU at 94%).
+
+I can fix this by:
+1. **Switch to read replica** — Route sync queries to the secondary DB instance
+2. **Reschedule to off-peak** — Move the sync window to 2:00-4:00 AM
+
+Which approach do you prefer? Switching to the read replica can be done immediately with zero downtime.`;
+  }
+
+  if (lowerAgent.includes('wms') || lowerIssue.includes('missing') || lowerIssue.includes('config')) {
+    return `**${agent}** needs the following configuration to activate:
+
+1. **WMS API Key** — You can find this in your WMS provider dashboard under Settings > API Access
+2. **Warehouse ID** — The unique identifier for your primary warehouse (e.g., WH-001)
+3. **Notification Channel** — Select Slack, Email, or WhatsApp for alerts
+
+Would you like to enter these now, or should I open the configuration wizard?`;
+  }
+
+  if (lowerAgent.includes('hr') || lowerAgent.includes('onboarding') || lowerIssue.includes('ldap')) {
+    return `**${agent}** requires two integrations to get started:
+
+1. **LDAP Credentials** — Server URL, bind DN, and password for your Active Directory
+2. **Slack Webhook** — Create an incoming webhook in your Slack workspace for onboarding notifications
+
+I can guide you through each step. Which one would you like to set up first?`;
+  }
+
+  return `I'm looking into **${agent}** now. The issue appears to be: ${issue}
+
+I'll need a few details to proceed with the fix. Could you confirm which environment this agent is running in (production/staging)?`;
 }

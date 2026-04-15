@@ -30,6 +30,15 @@ export default {
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
       },
+      keyframes: {
+        'flash-green': {
+          '0%': { backgroundColor: 'rgba(16, 185, 129, 0.15)' },
+          '100%': { backgroundColor: 'transparent' },
+        },
+      },
+      animation: {
+        'flash-green': 'flash-green 1s ease-out',
+      },
     },
   },
   plugins: [],

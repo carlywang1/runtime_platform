@@ -1,8 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
-import Agents from './pages/Agents';
-import AgentDetail from './pages/AgentDetail';
+
 import Steward from './pages/Steward';
 import Approvals from './pages/Approvals';
 import Activity from './pages/Activity';
@@ -27,8 +26,6 @@ function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Steward />} />
           <Route path="dashboard" element={<Dashboard />} />
-          <Route path="agents" element={<Agents />} />
-          <Route path="agents/:id" element={<AgentDetail />} />
           <Route path="teams" element={<Teams />} />
           <Route path="teams/:id" element={<TeamDetail />} />
           <Route path="steward" element={<Steward />} />

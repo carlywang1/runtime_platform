@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { Users, Activity, Play, Pause, Wrench, Settings, Search, Code, Store, ExternalLink } from 'lucide-react';
+import { Users, Play, Pause, Search, Code, Store, ExternalLink, Clock, Trash2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import Header from '../components/layout/Header';
 import CustomSelect from '../components/CustomSelect';
 
-type TeamStatus = 'active' | 'inactive' | 'config_required' | 'error';
+type TeamStatus = 'running' | 'inactive' | 'config_required' | 'error';
 
 const teamStatusConfig: Record<TeamStatus, { label: string; color: string; bgColor: string; dotColor: string }> = {
-  active: { label: 'Active', color: 'text-emerald-400', bgColor: 'bg-emerald-500/20', dotColor: 'bg-emerald-400' },
+  running: { label: 'Running', color: 'text-emerald-400', bgColor: 'bg-emerald-500/20', dotColor: 'bg-emerald-400' },
   inactive: { label: 'Inactive', color: 'text-rose-400', bgColor: 'bg-rose-500/20', dotColor: 'bg-rose-400' },
   config_required: { label: 'Config Required', color: 'text-amber-400', bgColor: 'bg-amber-500/20', dotColor: 'bg-amber-400' },
   error: { label: 'Error', color: 'text-rose-400', bgColor: 'bg-rose-500/20', dotColor: 'bg-rose-400' },
@@ -16,105 +16,67 @@ const teamStatusConfig: Record<TeamStatus, { label: string; color: string; bgCol
 const mockTeams = [
   {
     id: 'team-1',
-    name: 'WMS Inbound Team',
-    description: 'Warehouse management system inbound processing',
-    agentCount: 5,
-    status: 'active' as TeamStatus,
-    source: 'marketplace' as const,
-    tasksToday: 127,
-    successRate: 98.5,
-    pendingApprovals: 3,
+    name: 'OMS Agent for Multichannel Orders and Inventory and Fulfillment v1',
+    description: 'Unified single-agent OMS/DI operator for Shopify-first multichannel orders, inventory sync, and fulfillment orchestration',
+    agentCount: 1,
+    status: 'inactive' as TeamStatus,
+    source: 'ide_build' as const,
+    tasksToday: 10,
+    accuracy: 100.0,
+    tokens: 0,
+    pendingApprovals: 0,
     agents: [
-      { name: 'Receipt Validator', emoji: '📦' },
-      { name: 'Inventory Updater', emoji: '🔄' },
-      { name: 'Quality Inspector', emoji: '🔍' },
-      { name: 'Label Generator', emoji: '🏷️' },
-      { name: 'Storage Allocator', emoji: '📍' },
+      { name: 'OMS Agent for Multichannel Orders and Inventory and Fulfillment v2', emoji: '🛒' },
     ],
-    tasks30d: 1247,
-    credits30d: 1229,
-    version: 'v1.3.0',
+    version: 'v7',
   },
   {
     id: 'team-2',
-    name: 'Recruiting Team',
-    description: 'End-to-end recruitment and candidate management',
-    agentCount: 4,
-    status: 'active' as TeamStatus,
+    name: 'Email Draft Confirmation Assistant',
+    description: 'Drafts an email subject and body from user input, requires explicit manual approval before sending',
+    agentCount: 1,
+    status: 'running' as TeamStatus,
     source: 'ide_build' as const,
-    tasksToday: 89,
-    successRate: 96.2,
-    pendingApprovals: 5,
+    tasksToday: 0,
+    accuracy: 0,
+    tokens: 0,
+    pendingApprovals: 0,
     agents: [
-      { name: 'Resume Screener', emoji: '📄' },
-      { name: 'Interview Scheduler', emoji: '📅' },
-      { name: 'Candidate Evaluator', emoji: '⭐' },
-      { name: 'Offer Generator', emoji: '✉️' },
+      { name: 'Email Draft & Send Assistant Agent', emoji: '✉️' },
     ],
-    tasks30d: 2680,
-    credits30d: 890,
-    version: 'v2.0.1',
+    version: 'v7',
   },
   {
     id: 'team-3',
-    name: 'Customer Service Team',
-    description: 'Intelligent customer support with dynamic agent routing and handoffs',
-    agentCount: 4,
-    status: 'active' as TeamStatus,
-    source: 'marketplace' as const,
-    tasksToday: 342,
-    successRate: 97.3,
-    pendingApprovals: 4,
+    name: 'Warehouse Network Design Agent',
+    description: 'Single-agent registry package for US warehouse network design, grounded in real geospatial and logistics data',
+    agentCount: 1,
+    status: 'running' as TeamStatus,
+    source: 'ide_build' as const,
+    tasksToday: 3,
+    accuracy: 26.7,
+    tokens: 0,
+    pendingApprovals: 0,
     agents: [
-      { name: 'Triage Agent', emoji: '🎯' },
-      { name: 'Billing Agent', emoji: '📄' },
-      { name: 'Refund Agent', emoji: '💰' },
-      { name: 'Technical Support', emoji: '🔧' },
+      { name: 'Warehouse Network Design Agent', emoji: '🏭' },
     ],
-    tasks30d: 10260,
-    credits30d: 3870,
-    version: 'v1.5.0',
+    version: 'v5',
   },
   {
     id: 'team-4',
-    name: 'Sales Intelligence Team',
-    description: 'Lead qualification and sales support',
-    agentCount: 4,
-    status: 'error' as TeamStatus,
+    name: 'WES Pick Task Execution Agent',
+    description: 'Reusable API-first manual-station WES pick execution agent for OMRON shelf-to-person systems',
+    agentCount: 1,
+    status: 'config_required' as TeamStatus,
     source: 'ide_build' as const,
-    tasksToday: 213,
-    successRate: 94.8,
-    pendingApprovals: 8,
+    tasksToday: 0,
+    accuracy: 0,
+    tokens: 0,
+    pendingApprovals: 0,
     agents: [
-      { name: 'Lead Scorer', emoji: '🎯' },
-      { name: 'Data Enrichment', emoji: '📊' },
-      { name: 'Opportunity Analyzer', emoji: '💡' },
-      { name: 'CRM Sync Agent', emoji: '🔗' },
+      { name: 'WES Pick Task Execution Agent', emoji: '📦' },
     ],
-    tasks30d: 6390,
-    credits30d: 2140,
-    version: 'v0.8.5',
-  },
-  {
-    id: 'team-5',
-    name: 'Customer Success Pipeline',
-    description: 'End-to-end customer support workflow',
-    agentCount: 5,
-    status: 'active' as TeamStatus,
-    source: 'marketplace' as const,
-    tasksToday: 342,
-    successRate: 97.3,
-    pendingApprovals: 12,
-    agents: [
-      { name: 'Ticket Router', emoji: '🎫' },
-      { name: 'Support Agent', emoji: '💬' },
-      { name: 'Sentiment Analyzer', emoji: '😊' },
-      { name: 'Knowledge Bot', emoji: '📚' },
-      { name: 'Escalation Manager', emoji: '🚨' },
-    ],
-    tasks30d: 10260,
-    credits30d: 3870,
-    version: 'v3.2.0',
+    version: 'v22',
   },
 ];
 
@@ -140,33 +102,30 @@ export default function Teams() {
     return matchesSearch && matchesStatus && matchesSource;
   });
 
-  const handleToggleStatus = (e: React.MouseEvent, teamId: string, currentStatus: TeamStatus) => {
+  const handleToggleStatus = (e: React.MouseEvent, team: typeof mockTeams[number]) => {
     e.preventDefault();
     e.stopPropagation();
-    if (currentStatus === 'active') {
-      if (pauseConfirmId === teamId) {
-        console.log(`Pausing team ${teamId}`);
+    if (team.status === 'running') {
+      if (pauseConfirmId === team.id) {
+        console.log(`Pausing team ${team.id}`);
         setPauseConfirmId(null);
       } else {
-        setPauseConfirmId(teamId);
+        setPauseConfirmId(team.id);
         setTimeout(() => setPauseConfirmId(null), 3000);
       }
     } else {
-      console.log(`Activating team ${teamId}`);
+      // Navigate to Steward with agent info to trigger Run Agent flow
+      navigate('/steward', {
+        state: {
+          runAgent: true,
+          agentName: team.name,
+          agentEmoji: team.agents[0]?.emoji || '🤖',
+          agentVersion: team.version,
+        },
+      });
     }
   };
 
-  const handleFixError = (e: React.MouseEvent, team: typeof mockTeams[0]) => {
-    e.preventDefault();
-    e.stopPropagation();
-    navigate('/steward', { state: { message: `Help me fix the error for team ${team.name}.`, agentName: team.name } });
-  };
-
-  const handleConfigTeam = (e: React.MouseEvent, teamId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    navigate(`/teams/${teamId}`);
-  };
 
   return (
     <div className="min-h-screen">
@@ -189,7 +148,7 @@ export default function Teams() {
           <CustomSelect
             value={statusFilter}
             onChange={setStatusFilter}
-            options={['All Status', 'Active', 'Inactive', 'Config Required', 'Error'].map((o) => ({ value: o, label: o }))}
+            options={['All Status', 'Running', 'Inactive', 'Config Required', 'Error'].map((o) => ({ value: o, label: o }))}
           />
 
           <CustomSelect
@@ -227,27 +186,21 @@ export default function Teams() {
                     <Users className="w-6 h-6 text-indigo-400" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-semibold text-white group-hover:text-indigo-300 transition-colors">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-base font-semibold text-indigo-300 group-hover:text-indigo-200 transition-colors leading-snug">
                         {team.name}
                       </h3>
-                      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${status.bgColor} ${status.color}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${status.dotColor} ${team.status === 'active' ? 'animate-pulse' : ''}`} />
+                      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${status.bgColor} ${status.color} shrink-0`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${status.dotColor} ${team.status === 'running' ? 'animate-pulse' : ''}`} />
                         {status.label}
                       </span>
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium text-gray-500 bg-white/5">{team.version}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium text-gray-500 bg-white/5 shrink-0">{team.version}</span>
                     </div>
                     <div className="flex items-center gap-2 mt-1">
-                      <p className="text-sm text-gray-500">{team.description}</p>
+                      <p className="text-sm text-gray-500 line-clamp-2">{team.description}</p>
                     </div>
-                    <span
-                      className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                        team.source === 'marketplace'
-                          ? 'bg-indigo/20 text-indigo-300'
-                          : 'bg-emerald-500/20 text-emerald-300'
-                      }`}
-                    >
-                      {team.source === 'marketplace' ? 'Hired' : 'IDE Build'}
+                    <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-300">
+                      IDE Build
                     </span>
                   </div>
                 </div>
@@ -256,23 +209,18 @@ export default function Teams() {
 
               <div className="flex items-center gap-4 mb-4">
                 <div>
-                  <p className="text-lg font-semibold text-white">{team.tasks30d.toLocaleString()}</p>
-                  <p className="text-xs text-gray-500">Tasks (30d)</p>
+                  <p className="text-lg font-semibold text-white">{team.tasksToday.toLocaleString()}</p>
+                  <p className="text-xs text-gray-500">Tasks (today)</p>
                 </div>
                 <div>
-                  <p className="text-lg font-semibold text-emerald-400">{team.successRate}%</p>
-                  <p className="text-xs text-gray-500">Success</p>
+                  <p className={`text-lg font-semibold ${team.accuracy > 0 ? 'text-emerald-400' : 'text-gray-400'}`}>
+                    {team.accuracy > 0 ? `${team.accuracy}%` : '—'}
+                  </p>
+                  <p className="text-xs text-gray-500">Accuracy</p>
                 </div>
                 <div>
-                  <p className="text-lg font-semibold text-white">
-                    {team.source === 'marketplace'
-                      ? team.credits30d.toLocaleString()
-                      : `${(team.credits30d / 1000).toFixed(0)}K`
-                    }
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {team.source === 'marketplace' ? 'Credits (30d)' : 'Tokens (30d)'}
-                  </p>
+                  <p className="text-lg font-semibold text-white">{team.tokens > 0 ? team.tokens.toLocaleString() : '0'}</p>
+                  <p className="text-xs text-gray-500">Tokens</p>
                 </div>
               </div>
 
@@ -292,50 +240,38 @@ export default function Teams() {
               </div>
 
               <div className="flex items-center justify-end gap-1 pt-3 border-t border-white/5">
-                {team.source === 'ide_build' && (
-                  <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setToast(`Opening ${team.name} in IDE...`); setTimeout(() => setToast(null), 2500); }}
-                    className="p-2 rounded-lg text-gray-400 hover:text-indigo-300 hover:bg-indigo/10 transition-colors"
-                    data-tip="Edit in IDE"
-                  >
-                    <Code className="w-4 h-4" />
-                  </button>
-                )}
-                {team.status === 'error' ? (
-                  <button
-                    onClick={(e) => handleFixError(e, team)}
-                    className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
-                    data-tip="Fix Error"
-                  >
-                    <Wrench className="w-4 h-4" />
-                  </button>
-                ) : team.status === 'config_required' ? (
-                  <button
-                    onClick={(e) => handleConfigTeam(e, team.id)}
-                    className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
-                    data-tip="Configure Team"
-                  >
-                    <Settings className="w-4 h-4" />
-                  </button>
-                ) : (
-                  <div className="relative">
-                    <button
-                      onClick={(e) => handleToggleStatus(e, team.id, team.status)}
-                      className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
-                      data-tip={team.status === 'active' ? 'Pause Team' : 'Activate Team'}
-                    >
-                      {team.status === 'active' ? (
-                        <Pause className="w-4 h-4" />
-                      ) : (
-                        <Play className="w-4 h-4" />
-                      )}
-                    </button>
-                    {pauseConfirmId === team.id && (
-                      <div className="absolute bottom-full right-0 mb-2 px-3 py-2 bg-dark-50 border border-white/10 rounded-lg shadow-lg whitespace-nowrap z-10">
-                        <p className="text-xs text-white mb-1">Pause this team?</p>
-                        <p className="text-xs text-gray-500">Click again to confirm</p>
-                      </div>
-                    )}
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleToggleStatus(e, team); }}
+                  className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  {team.status === 'running' ? (
+                    <Pause className="w-4 h-4" />
+                  ) : (
+                    <Play className="w-4 h-4" />
+                  )}
+                </button>
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  <Clock className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setToast(`Opening ${team.name} in IDE...`); setTimeout(() => setToast(null), 2500); }}
+                  className="p-2 rounded-lg text-gray-400 hover:text-indigo-300 hover:bg-indigo/10 transition-colors"
+                >
+                  <Code className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  className="p-2 rounded-lg text-gray-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+                {pauseConfirmId === team.id && (
+                  <div className="absolute bottom-full right-0 mb-2 px-3 py-2 bg-dark-50 border border-white/10 rounded-lg shadow-lg whitespace-nowrap z-10">
+                    <p className="text-xs text-white mb-1">Pause this team?</p>
+                    <p className="text-xs text-gray-500">Click again to confirm</p>
                   </div>
                 )}
               </div>
