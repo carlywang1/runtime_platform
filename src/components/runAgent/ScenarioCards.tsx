@@ -59,7 +59,7 @@ export function ParamConfirmCard({
   // Show Confirm when not editing: complete card (not partial), only on latest card
   const showConfirmStatic = !editing && !confirmed && !panelOpen && !partial && isLatest;
 
-  const isConfig = headerLabel === 'Environment Configuration';
+  const isConfig = headerLabel === 'Environment Configuration' || headerLabel?.includes('环境配置');
 
   return (
     <div className="mt-3 p-3.5 rounded-xl bg-[#0d0d12] border border-white/[0.06]">
@@ -111,8 +111,8 @@ export function ParamConfirmCard({
           )}
         </div>
       ))}
-      {/* Extra Files — only in editing mode for input cards */}
-      {editing && !isConfig && (
+      {/* Extra Files */}
+      {!isConfig && (
         <div className="mt-2.5 pt-2 border-t border-white/[0.04]">
           <button
             onClick={() => setFilesOpen(!filesOpen)}
@@ -139,28 +139,34 @@ export function ParamConfirmCard({
                   {extraFiles.map((file, i) => (
                     <div key={i} className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/[0.03]">
                       <span className="text-[10px] text-gray-400 truncate">{file.name}</span>
-                      <button onClick={() => setExtraFiles((prev) => prev.filter((_, j) => j !== i))} className="text-gray-600 hover:text-gray-400 transition-colors">
-                        <X className="w-3 h-3" />
-                      </button>
+                      {editing && (
+                        <button onClick={() => setExtraFiles((prev) => prev.filter((_, j) => j !== i))} className="text-gray-600 hover:text-gray-400 transition-colors">
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
-              <label className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-dashed border-white/[0.08] hover:border-white/[0.15] cursor-pointer transition-colors">
-                <Upload className="w-3.5 h-3.5 text-gray-500" />
-                <span className="text-[11px] text-gray-500">Add files</span>
-                <input
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files) {
-                      setExtraFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
-                    }
-                    e.target.value = '';
-                  }}
-                />
-              </label>
+              {editing ? (
+                <label className="flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-dashed border-white/[0.08] hover:border-white/[0.15] cursor-pointer transition-colors">
+                  <Upload className="w-3.5 h-3.5 text-gray-500" />
+                  <span className="text-[11px] text-gray-500">Add files</span>
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files) {
+                        setExtraFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
+                      }
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              ) : extraFiles.length === 0 ? (
+                <p className="text-[11px] text-gray-600 italic">No extra files attached</p>
+              ) : null}
             </div>
           )}
         </div>
@@ -211,8 +217,10 @@ export function ParamConfirmCard({
 }
 
 export function ExecLogCard({ lines, progress, done, onViewDetails }: { lines: ExecLogLine[]; progress: number; done: boolean; onViewDetails?: () => void }) {
-  const [visibleCount, setVisibleCount] = useState(0);
-  const [animDone, setAnimDone] = useState(false);
+  const skipAnim = done && progress === 100;
+  const [visibleCount, setVisibleCount] = useState(skipAnim ? lines.length : 0);
+  const [animDone, setAnimDone] = useState(skipAnim);
+  const [collapsed, setCollapsed] = useState(skipAnim);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -221,10 +229,11 @@ export function ExecLogCard({ lines, progress, done, onViewDetails }: { lines: E
       return () => clearTimeout(timer);
     } else if (visibleCount === lines.length && lines.length > 0) {
       setAnimDone(true);
+      const collapseTimer = setTimeout(() => setCollapsed(true), 1200);
+      return () => clearTimeout(collapseTimer);
     }
   }, [visibleCount, lines.length]);
 
-  // Auto-scroll to bottom as new lines appear
   useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -232,6 +241,8 @@ export function ExecLogCard({ lines, progress, done, onViewDetails }: { lines: E
   }, [visibleCount]);
 
   const currentProgress = lines.length > 0 ? Math.round((visibleCount / lines.length) * 100) : 0;
+  const okCount = lines.filter(l => l.status === 'ok').length;
+  const warnCount = lines.filter(l => l.status === 'warn').length;
 
   const statusColor = (s: string) => {
     if (s === 'ok') return 'text-emerald-400';
@@ -239,6 +250,20 @@ export function ExecLogCard({ lines, progress, done, onViewDetails }: { lines: E
     if (s === 'warn') return 'text-amber-400';
     return 'text-gray-500';
   };
+
+  if (collapsed) {
+    return (
+      <div
+        className="mt-3 px-3 py-2 rounded-lg bg-[#08080e] border border-emerald-500/10 flex items-center gap-2 cursor-pointer hover:bg-[#0a0a14] transition-colors"
+        onClick={() => setCollapsed(false)}
+      >
+        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/12 text-emerald-400">DONE</span>
+        <span className="text-[10px] text-gray-400">{lines.length} steps completed</span>
+        {warnCount > 0 && <span className="text-[10px] text-amber-400">{warnCount} warning{warnCount > 1 ? 's' : ''}</span>}
+        <ChevronDown size={12} className="ml-auto text-gray-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="mt-3 p-3.5 rounded-xl bg-[#08080e] border border-indigo/15">
@@ -249,7 +274,15 @@ export function ExecLogCard({ lines, progress, done, onViewDetails }: { lines: E
         ) : (
           <span className="text-[9px] font-semibold px-2 py-0.5 rounded bg-indigo/20 text-indigo-300">RUNNING</span>
         )}
-        {onViewDetails && (
+        {animDone && (
+          <button
+            onClick={() => setCollapsed(true)}
+            className="ml-auto px-2 py-0.5 rounded text-[10px] font-medium text-gray-400 hover:text-indigo-300 hover:bg-indigo/10 transition-colors"
+          >
+            <ChevronUp size={12} />
+          </button>
+        )}
+        {!animDone && onViewDetails && (
           <button
             onClick={onViewDetails}
             className="ml-auto px-2 py-0.5 rounded text-[10px] font-medium text-gray-400 hover:text-indigo-300 hover:bg-indigo/10 transition-colors"
@@ -266,12 +299,14 @@ export function ExecLogCard({ lines, progress, done, onViewDetails }: { lines: E
           </div>
         ))}
       </div>
-      <div className="mt-2 h-[3px] rounded-sm bg-white/[0.04] overflow-hidden">
-        <div
-          className="h-full rounded-sm bg-gradient-to-r from-indigo to-[#7F43AD] transition-all duration-300"
-          style={{ width: `${currentProgress}%` }}
-        />
-      </div>
+      {!animDone && (
+        <div className="mt-2 h-[3px] rounded-sm bg-white/[0.04] overflow-hidden">
+          <div
+            className="h-full rounded-sm bg-gradient-to-r from-indigo to-[#7F43AD] transition-all duration-300"
+            style={{ width: `${currentProgress}%` }}
+          />
+        </div>
+      )}
     </div>
   );
 }

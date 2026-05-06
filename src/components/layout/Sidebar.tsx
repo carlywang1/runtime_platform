@@ -1,4 +1,6 @@
-import { NavLink } from 'react-router-dom';
+'use client';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 import {
   LayoutDashboard,
@@ -18,6 +20,7 @@ import {
   Coins,
   ExternalLink,
   Building2,
+  Server,
 } from 'lucide-react';
 
 interface NavItem {
@@ -57,6 +60,7 @@ const navSections: NavSection[] = [
   {
     label: 'Settings',
     items: [
+      { path: '/environments', icon: Server, label: 'Environments' },
       { path: '/settings', icon: Wrench, label: 'Config' },
       { path: '/connectors', icon: Plug, label: 'Connectors' },
     ],
@@ -71,6 +75,7 @@ const navSections: NavSection[] = [
 ];
 
 export default function Sidebar() {
+  const pathname = usePathname() ?? '';
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -104,11 +109,11 @@ export default function Sidebar() {
         </div>
       </div>
 
-      <NavLink
-        to="/steward"
-        className={({ isActive }) =>
+      <Link
+        href="/steward"
+        className={
           `mx-3 mt-4 flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 ${
-            isActive
+            pathname === '/steward' || pathname === '/'
               ? 'bg-indigo text-white shadow-lg shadow-indigo/20'
               : 'bg-indigo/10 text-indigo-300 hover:bg-indigo/20'
           }`
@@ -124,7 +129,7 @@ export default function Sidebar() {
           </div>
         </div>
         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-      </NavLink>
+      </Link>
 
       <nav className="flex-1 py-4 px-3 space-y-5 overflow-y-auto">
         {navSections.map((section) => (
@@ -148,12 +153,12 @@ export default function Sidebar() {
                     <ExternalLink className="w-3 h-3 ml-auto text-gray-600" />
                   </button>
                 ) : (
-                  <NavLink
+                  <Link
                     key={item.path}
-                    to={item.path}
-                    className={({ isActive }) =>
+                    href={item.path}
+                    className={
                       `flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 ${
-                        isActive
+                        pathname === item.path || pathname.startsWith(item.path + '/')
                           ? 'bg-white/5 text-white'
                           : 'text-gray-400 hover:bg-white/[0.03] hover:text-gray-300'
                       }`
@@ -166,7 +171,7 @@ export default function Sidebar() {
                         {item.badge}
                       </span>
                     )}
-                  </NavLink>
+                  </Link>
                 )
               )}
             </div>

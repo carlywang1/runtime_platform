@@ -24,7 +24,7 @@ export interface ApprovalTask {
   agentName: string;
   agentAvatar: string;
   taskDescription: string;
-  priority: 'low' | 'medium' | 'high';
+  priority: 'low' | 'medium' | 'high' | 'critical';
   timestamp: string;
   context: string;
   proposedAction: string;
@@ -77,4 +77,45 @@ export interface MetricCard {
   change?: number;
   changeLabel?: string;
   icon: string;
+}
+
+// Session types
+export type SessionType = 'build_agent' | 'run_task' | 'run_chat';
+export type SessionStatus = 'active' | 'completed' | 'stopped' | 'failed';
+
+export interface Session {
+  id: string;
+  title: string;
+  session_type: SessionType;
+  status: SessionStatus;
+  parent_session_id: string | null;
+  agent_id: string | null;
+  agent_name: string | null;
+  agent_emoji: string | null;
+  created_at: number;
+  updated_at: number;
+  messages: ChatMessage[];
+  run_agent_state: RunAgentSessionState | null;
+}
+
+export interface RunAgentSessionState {
+  runAgentMode: boolean;
+  chatflowMode: boolean;
+  configPhase: boolean;
+  visibleScenarioCount: number;
+  visibleConfigCount: number;
+  visibleChatflowCount: number;
+  confirmedCardId: string | null;
+  skippedIds: string[];
+  currentA2UI: string | null;
+  runAgentInfo: { name: string; emoji: string; version: string; status?: string } | null;
+}
+
+export interface SessionReferenceMessage {
+  type: 'session-reference';
+  child_session_id: string;
+  agent_name: string;
+  agent_emoji: string;
+  status: SessionStatus;
+  summary?: string;
 }
