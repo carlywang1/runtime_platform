@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentFactory - Test Cases 原型白板</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0f; color: #e5e5e5; min-height: 100vh; padding: 40px; }
+
+.whiteboard { max-width: 1400px; margin: 0 auto; }
+.title { font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+.subtitle { font-size: 14px; color: #888; margin-bottom: 40px; }
+
+/* Flow diagram */
+.flow-section { margin-bottom: 60px; }
+.flow-section h2 { font-size: 18px; color: #a78bfa; margin-bottom: 20px; font-weight: 600; }
+.flow-diagram { display: flex; align-items: center; gap: 12px; padding: 24px; background: #111118; border-radius: 16px; border: 1px solid rgba(255,255,255,0.06); overflow-x: auto; }
+.flow-step { padding: 12px 20px; border-radius: 10px; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.flow-step.done { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+.flow-step.new { background: rgba(167,139,250,0.15); color: #c4b5fd; border: 2px solid rgba(167,139,250,0.5); position: relative; }
+.flow-step.new::after { content: "NEW"; position: absolute; top: -8px; right: -8px; font-size: 9px; background: #a78bfa; color: #000; padding: 2px 5px; border-radius: 4px; font-weight: 700; }
+.flow-step.future { background: rgba(255,255,255,0.04); color: #888; border: 1px solid rgba(255,255,255,0.08); }
+.flow-arrow { color: #555; font-size: 18px; }
+
+/* Main prototype */
+.prototype-section { margin-bottom: 60px; }
+.prototype-section h2 { font-size: 18px; color: #a78bfa; margin-bottom: 20px; font-weight: 600; }
+
+/* Split layout */
+.split-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.panel { background: #111118; border-radius: 16px; border: 1px solid rgba(255,255,255,0.06); overflow: hidden; }
+.panel-header { padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between; }
+.panel-title { font-size: 14px; font-weight: 600; color: #fff; }
+.panel-badge { font-size: 11px; padding: 3px 8px; border-radius: 6px; font-weight: 500; }
+.panel-badge.chat { background: rgba(99,102,241,0.15); color: #a5b4fc; }
+.panel-badge.tests { background: rgba(167,139,250,0.15); color: #c4b5fd; }
+
+/* Test cases panel */
+.stats-bar { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: rgba(0,0,0,0.3); border-bottom: 1px solid rgba(255,255,255,0.04); }
+.stat-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.stat-number { font-weight: 700; color: #fff; font-size: 16px; }
+.stat-label { color: #888; }
+.stat-pass { color: #6ee7b7; }
+.stat-fail { color: #f87171; }
+.stat-pending { color: #fbbf24; }
+
+.actions-bar { display: flex; align-items: center; gap: 8px; padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.btn { padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 500; cursor: pointer; border: none; transition: all 0.2s; }
+.btn-primary { background: #6366f1; color: #fff; }
+.btn-primary:hover { background: #4f46e5; }
+.btn-outline { background: transparent; color: #aaa; border: 1px solid rgba(255,255,255,0.12); }
+.btn-outline:hover { background: rgba(255,255,255,0.04); color: #fff; }
+.checkbox-all { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; cursor: pointer; }
+.checkbox-all input { accent-color: #6366f1; }
+
+/* Test case card */
+.test-case { border-bottom: 1px solid rgba(255,255,255,0.04); }
+.test-case:last-child { border-bottom: none; }
+.test-case-header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; cursor: pointer; transition: background 0.15s; }
+.test-case-header:hover { background: rgba(255,255,255,0.02); }
+.test-checkbox { accent-color: #6366f1; }
+.test-index { font-size: 11px; color: #666; font-weight: 500; min-width: 24px; }
+.test-name { flex: 1; font-size: 13px; color: #ddd; }
+.test-status { font-size: 11px; padding: 3px 10px; border-radius: 6px; font-weight: 600; }
+.test-status.pass { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+.test-status.fail { background: rgba(248,113,113,0.15); color: #f87171; }
+.test-status.pending { background: rgba(251,191,36,0.15); color: #fbbf24; }
+.test-status.running { background: rgba(99,102,241,0.15); color: #a5b4fc; animation: pulse 1.5s infinite; }
+.test-run-btn { font-size: 11px; padding: 4px 10px; border-radius: 6px; background: rgba(99,102,241,0.1); color: #a5b4fc; border: 1px solid rgba(99,102,241,0.3); cursor: pointer; }
+.test-run-btn:hover { background: rgba(99,102,241,0.2); }
+.test-edit-btn { font-size: 11px; padding: 4px 10px; border-radius: 6px; background: rgba(255,255,255,0.04); color: #888; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; }
+.test-edit-btn:hover { background: rgba(255,255,255,0.08); color: #ccc; }
+.expand-icon { color: #555; font-size: 12px; transition: transform 0.2s; }
+
+/* Expanded detail */
+.test-detail { padding: 0 20px 16px 56px; display: none; }
+.test-detail.show { display: block; }
+.detail-row { display: flex; gap: 12px; margin-bottom: 8px; }
+.detail-label { font-size: 11px; color: #888; min-width: 70px; font-weight: 500; }
+.detail-value { font-size: 12px; color: #ccc; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 8px; flex: 1; font-family: 'SF Mono', monospace; line-height: 1.5; white-space: pre-wrap; }
+.detail-value.match { border-left: 3px solid #6ee7b7; }
+.detail-value.mismatch { border-left: 3px solid #f87171; }
+.detail-value.editable { border: 1px solid rgba(99,102,241,0.3); background: rgba(99,102,241,0.05); cursor: text; }
+.detail-value.editable:focus { outline: none; border-color: rgba(99,102,241,0.6); }
+.edit-hint { font-size: 10px; color: #6366f1; margin-top: 4px; }
+
+/* Exec log in chat (for running state) */
+.exec-log-card { background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 12px 14px; margin-top: 8px; font-size: 11px; font-family: 'SF Mono', monospace; }
+.exec-log-line { display: flex; gap: 8px; padding: 3px 0; color: #aaa; }
+.exec-log-line .time { color: #555; min-width: 50px; }
+.exec-log-line.ok { color: #6ee7b7; }
+.exec-log-line.info { color: #a5b4fc; }
+.exec-log-done { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 11px; color: #6ee7b7; }
+
+/* Chat panel (left side) */
+.chat-messages { padding: 20px; max-height: 600px; overflow-y: auto; }
+.chat-msg { margin-bottom: 16px; }
+.chat-msg.steward .chat-bubble { background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.15); border-radius: 12px 12px 12px 4px; }
+.chat-msg.user .chat-bubble { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px 12px 4px 12px; margin-left: auto; }
+.chat-bubble { padding: 12px 16px; max-width: 85%; font-size: 13px; line-height: 1.6; color: #ddd; }
+.chat-role { font-size: 11px; color: #888; margin-bottom: 4px; font-weight: 500; }
+.chat-input { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; gap: 8px; }
+.chat-input input { flex: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 14px; color: #fff; font-size: 13px; outline: none; }
+.chips-bar { padding: 8px 20px; border-top: 1px solid rgba(255,255,255,0.04); display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { padding: 6px 12px; border-radius: 8px; font-size: 12px; background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); color: #a5b4fc; cursor: pointer; }
+.chip:first-child { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.4); }
+
+/* Annotations */
+.annotation { position: relative; margin-top: 40px; padding: 20px; background: rgba(251,191,36,0.05); border: 1px dashed rgba(251,191,36,0.3); border-radius: 12px; }
+.annotation h3 { font-size: 14px; color: #fbbf24; margin-bottom: 12px; }
+.annotation ul { list-style: none; padding: 0; }
+.annotation li { font-size: 13px; color: #ccc; padding: 6px 0; padding-left: 20px; position: relative; }
+.annotation li::before { content: "→"; position: absolute; left: 0; color: #fbbf24; }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+/* State diagrams */
+.states-section { margin-top: 60px; }
+.states-section h2 { font-size: 18px; color: #a78bfa; margin-bottom: 20px; font-weight: 600; }
+.state-diagram { padding: 24px; background: #111118; border-radius: 16px; border: 1px solid rgba(255,255,255,0.06); font-family: 'SF Mono', monospace; font-size: 12px; color: #aaa; line-height: 2; white-space: pre; overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="whiteboard">
+  <div class="title">🧪 Test Cases 验证环节 — 原型白板</div>
+  <div class="subtitle">插入位置：Debug Run 通过 → [Test Cases 验证] → Publish</div>
+
+  <!-- Flow Diagram -->
+  <div class="flow-section">
+    <h2>📍 流程位置</h2>
+    <div class="flow-diagram">
+      <div class="flow-step done">① 需求描述</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step done">② 方案确认</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step done">③ 配置环境</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step done">④ Debug Run</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step done">⑤ 迭代优化</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step new">⑥ Test Cases 验证</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step future">⑦ 配置正式环境</div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step future">⑧ Publish</div>
+    </div>
+  </div>
+
+  <!-- Main Prototype -->
+  <div class="prototype-section">
+    <h2>🖥️ 页面原型 — 测试用例验证阶段</h2>
+    <div class="split-layout">
+
+      <!-- Left: Chat Panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">💬 Steward 对话</div>
+          <span class="panel-badge chat">Build Session</span>
+        </div>
+        <div class="chat-messages">
+          <div class="chat-msg steward">
+            <div class="chat-role">Steward</div>
+            <div class="chat-bubble">
+              Debug 测试通过了！接下来我为你生成一组测试用例，覆盖主要场景，确保 Agent 在各种输入下都能正确工作。<br><br>
+              正在分析 Agent 能力和配置，生成测试用例...
+            </div>
+          </div>
+          <div class="chat-msg steward">
+            <div class="chat-role">Steward</div>
+            <div class="chat-bubble">
+              ✅ 已生成 <strong>8 个测试用例</strong>，覆盖以下场景：<br><br>
+              • 邮件分类（complaint / order / delivery / returns / general）<br>
+              • 缺失信息检测 & 追问<br>
+              • 审批路由<br>
+              • 边界情况（空邮件、超长内容）<br><br>
+              你可以在右侧面板查看、编辑用例，然后全选或逐个运行。
+            </div>
+          </div>
+
+          <!-- Running state: sequential execution -->
+          <div class="chat-msg steward" style="border-left: 2px solid rgba(99,102,241,0.3); padding-left: 12px; margin-left: 4px;">
+            <div class="chat-role">Steward — 正在执行测试 (3/8)</div>
+            <div class="chat-bubble" style="max-width:100%;">
+              <div style="margin-bottom: 8px; font-size: 12px; color: #6ee7b7;">✓ #1 Complaint email — PASS</div>
+              <div style="margin-bottom: 8px; font-size: 12px; color: #6ee7b7;">✓ #2 Order inquiry — PASS</div>
+              <div style="margin-bottom: 12px; font-size: 12px; color: #a5b4fc;">⟳ #3 Order inquiry (missing order number) — Running...</div>
+              <div class="exec-log-card">
+                <div class="exec-log-line info"><span class="time">14:42:01</span> Initializing test case #3...</div>
+                <div class="exec-log-line"><span class="time">14:42:03</span> Sending test email: order-inquiry-no-id@example.com</div>
+                <div class="exec-log-line info"><span class="time">14:42:05</span> Classifying email... category: order-inquiry</div>
+                <div class="exec-log-line"><span class="time">14:42:07</span> Detecting missing info... order number not found</div>
+                <div class="exec-log-line ok"><span class="time">14:42:09</span> Generating follow-up question...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="chips-bar">
+          <div class="chip">Run All Test Cases</div>
+          <div class="chip">添加自定义用例</div>
+          <div class="chip">跳过，直接发布</div>
+        </div>
+        <div class="chat-input">
+          <input type="text" placeholder="输入消息..." disabled>
+          <button class="btn btn-primary" style="padding: 8px 16px;">发送</button>
+        </div>
+      </div>
+
+      <!-- Right: Test Cases Panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">🧪 Test Cases</div>
+          <span class="panel-badge tests">8 cases</span>
+        </div>
+
+        <!-- Stats Bar -->
+        <div class="stats-bar">
+          <div class="stat-item">
+            <span class="stat-number">8</span>
+            <span class="stat-label">Total</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number stat-pass">6</span>
+            <span class="stat-label">Passed</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number stat-fail">1</span>
+            <span class="stat-label">Failed</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number stat-pending">1</span>
+            <span class="stat-label">Running</span>
+          </div>
+        </div>
+
+        <!-- Actions Bar -->
+        <div class="actions-bar">
+          <label class="checkbox-all"><input type="checkbox"> 全选</label>
+          <button class="btn btn-primary">▶ Run All</button>
+          <button class="btn btn-outline" style="margin-left: auto;">+ 添加用例</button>
+        </div>
+
+        <!-- Test Case List -->
+        <div class="test-cases-list">
+          <div class="test-case">
+            <div class="test-case-header">
+              <input type="checkbox" class="test-checkbox" checked>
+              <span class="test-index">#1</span>
+              <span class="test-name">Complaint email — product quality issue</span>
+              <span class="test-status pass">PASS</span>
+              <span class="test-edit-btn">✎ Edit</span>
+              <span class="test-run-btn">▶ Run</span>
+              <span class="expand-icon">▼</span>
+            </div>
+            <div class="test-detail show">
+              <div class="detail-row">
+                <span class="detail-label">Input</span>
+                <span class="detail-value">From: angry-customer@example.com
+Subject: Broken product received
+Body: I received my order #12345 yesterday and the screen is cracked...</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Expected</span>
+                <span class="detail-value match">classification: "complaint"
+draft_reply: contains apology + replacement offer
+requires_followup: false
+routed_to: sarah@acme.com</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Actual</span>
+                <span class="detail-value match">classification: "complaint"
+draft_reply: "We sincerely apologize for the damaged product..."
+requires_followup: false
+routed_to: sarah@acme.com</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="test-case">
+            <div class="test-case-header">
+              <input type="checkbox" class="test-checkbox" checked>
+              <span class="test-index">#2</span>
+              <span class="test-name">Order inquiry — standard status check</span>
+              <span class="test-status pass">PASS</span>
+              <span class="test-edit-btn">✎ Edit</span>
+              <span class="test-run-btn">▶ Run</span>
+              <span class="expand-icon">▶</span>
+         div>
+          </div>
+
+          <div class="test-case">
+            <div class="test-case-header">
+              <input type="checkbox" class="test-checkbox" checked>
+              <span class="test-index">#3</span>
+              <span class="test-name">Order inquiry — missing order number</span>
+              <span class="test-status pass">PASS</span>
+              <span class="test-edit-btn">✎ Edit</span>
+              <span class="test-run-btn">▶ Run</span>
+              <span class="expand-icon">▶</span>
+            </div>
+          </div>
+
+          <div class="test-case">
+            <div class="test-case-header">
+              <input type="checkbox" class="test-checkbox" checked>
+              <span class="test-index">#4</span>
+              <span class="test-name">Delivery status — tracking request</span>
+              <span class="test-status pass">PASS</span>
+              <span class="test-edit-btn">✎ Edit</span>
+              <span class="test-run-btn">▶ Run</span>
+              <span class="expand-icon">▶</span>
+            </div>
+          </div>
+
+          <div class="test-case">
+            <div class="test-case-header">
+              <input type="checkbox" class="test-checkbox" checked>
+              <span class="test-index">#5</span>
+              <span class="test-name">Returns — within policy window</span>
+              <span class="test-status pass">PASS</span>
+              <span class="test-edit-btn">✎ Edit</span>
+              <span class="test-run-btn">▶ Run</span>
+              <span class="expand-icon">▶</span>
+            </div>
+          </div>
+
+          <div class="test-case">
+            <div class="test-case-header">
+              <input type="checkbox" class="test-checkbox" checked>
+              <span class="test-index">#6</span>
+              <span class="test-name">General inquiry — not categorizable</span>
+              <span class="test-status pass">PASS</span>
+              <span class="test-edit-btn">✎ Edit</span>
+              <span class="test-run-btn">▶ Run</span>
+              <span class="expand-icon">▶</span>
+            </div>
+          </div>
+
+          <div class="test-case">
+            <div class="test-case-header">
+              <input type="checkbox" class="test-checkbox" checked>
+              <span class="test-index">#7</span>
+              <span class="test-name">Edge case — empty email body</span>
+              <span class="test-status fail">FAIL</span>
+              <span class="test-edit-btn">✎ Edit</span>
+              <span class="test-run-btn">▶ Run</span>
+              <span class="expand-icon">▼</span>
+            </div>
+            <div class="test-detail show">
+              <div class="detail-row">
+                <span class="detail-label">Input</span>
+                <span class="detail-value">From: user@example.com
+Subject: (empty)
+Body: (empty)</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Expected</span>
+                <span class="detail-value mismatch">classification: "general"
+requires_followup: true
+followup_question: asks for more details</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Actual</span>
+                <span class="detail-value mismatch">ERROR: classification failed
+reason: "Unable to classify empty content"
+requires_followup: undefined</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="test-case">
+            <div class="test-case-header">
+              <input type="checkbox" class="test-checkbox" checked>
+              <span class="test-index">#8</span>
+              <span class="test-name">Edge case — extremely long email (5000+ words)</span>
+              <span class="test-status running">RUNNING</span>
+              <span class="test-run-btn" style="opacity:0.5;">⟳</span>
+              <span class="expand-icon">▶</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit State Example -->
+  <div class="prototype-section" style="margin-top: 40px;">
+    <h2>✏️ 编辑态示例 — 点击 Edit 后</h2>
+    <div class="panel" style="max-width: 700px;">
+      <div class="test-case">
+        <div class="test-case-header" style="background: rgba(99,102,241,0.04);">
+          <input type="checkbox" class="test-checkbox" checked>
+          <span class="test-index">#3</span>
+          <span class="test-name">Order inquiry — missing order number</span>
+          <span class="test-status pending">EDITING</span>
+          <span class="test-edit-btn" style="background: rgba(99,102,241,0.15); color: #a5b4fc; border-color: rgba(99,102,241,0.4);">✓ Save</span>
+          <span class="test-edit-btn">✕ Cancel</span>
+        </div>
+        <div class="test-detail show">
+          <div class="detail-row">
+            <span class="detail-label">Input</span>
+            <span class="detail-value editable" contenteditable="true">From: order-inquiry@example.com
+Subject: Where is my order?
+Body: Hi, I placed an order last week but haven't received any updates. Can you help?</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Expected</span>
+            <span class="detail-value editable" contenteditable="true">classification: "order-inquiry"
+requires_followup: true
+followup_question: asks for order number
+routed_to: sarah@acme.com</span>
+          </div>
+          <div class="edit-hint" style="margin-left: 82px;">直接编辑 Input 和 Expected 字段，Actual 在运行后自动填充</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Annotations -->
+  <div class="annotation">
+    <h3>💡 交互说明</h3>
+    <ul>
+      <li><strong>触发时机：</strong>用户说"当前测试没有问题了"后，Steward 自动生成测试用例（而非直接进入 publish）</li>
+      <li><strong>生成逻辑：</strong>Steward 根据 Agent 的 capabilities、instructions、output_schema 自动生成覆盖各分支的测试用例</li>
+      <li><strong>运行方式：</strong>全选 + Run All 批量跑，或逐个勾选运行。运行时左侧对话区自动发起执行（和 debug run 一致）</li>
+      <li><strong>运行过程：</strong>左侧对话区按顺序展示每个 case 的执行过程（typing → exec-log），跑完一个接着下一个，右侧面板同步更新状态</li>
+      <li><strong>编辑用例：</strong>每个 case 有 Edit 按钮，点击后 Input 和 Expected 字段变为可编辑，修改后 Save 保存</li>
+      <li><strong>结果判定：</strong>对比 Expected 和 Actual，字段匹配则 PASS，不匹配则 FAIL</li>
+      <li><strong>失败处理：</strong>如果有 FAIL 的用例，Steward 会建议修复方向，用户可选择修复后重跑或忽略继续</li>
+      <li><strong>通过后：</strong>全部 PASS 后，Steward 提示"测试全部通过，可以进入发布流程"，展示 Chips 引导进入 publish</li>
+      <li><strong>右侧面板：</strong>复用现有的 PanelCard 组件位置（和 BuildAgentPanel / DebugRunPanel 同层级切换）</li>
+    </ul>
+  </div>
+
+  <!-- State Diagram -->
+  <div class="states-section">
+    <h2>🔄 状态机变更</h2>
+    <div class="state-diagram">
+现有流程:
+  step12("当前测试没有问题了") → step13(配置正式环境) → step14 → step15(发布)
+
+新流程:
+  step12("当前测试没有问题了")
+    → step12.5: Steward 生成测试用例，右侧面板切换为 TestCasesPanel
+    → step12.6: 用户选择 Run All 或逐个 Run
+    → step12.7: 运行中（左侧对话 + 右侧状态更新）
+    → step12.8: 全部 PASS → Steward 提示可以发布
+              | 有 FAIL → Steward 建议修复，用户可选择：
+                         a) 修复 Agent → 重跑失败用例
+                         b) 忽略继续发布
+    → step13(配置正式环境) → ...
+
+Chips 变化:
+  step12 之后的 Chips:
+    旧: [配置正式环境参数]
+    新: [生成测试用例] [跳过测试，直接发布]
+
+  测试阶段的 Chips:
+    [Run All Test Cases] [添加自定义用例] [跳过，直接发布]
+
+  全部 PASS 后的 Chips:
+    [进入发布流程] [再跑一轮] [添加更多用例]
+
+  有 FAIL 时的 Chips:
+    [修复并重跑失败用例] [忽略失败，继续发布] [查看失败详情]
+    </div>
+  </div>
+
+  <!-- Data Structure -->
+  <div class="states-section">
+    <h2>📦 数据结构（参考截图）</h2>
+    <div class="state-diagram">
+interface TestCase {
+  id: string;
+  name: string;                    // 用例名称
+  description?: string;            // 用例描述
+  input: {
+    from: string;                  // 发件人
+    subject: string;               // 邮件主题
+    body: string;                  // 邮件正文
+  };
+  expected: {
+    classification: string;        // 期望分类
+    draft_reply_contains?: string; // 期望回复包含的关键词
+    requires_followup: boolean;    // 是否需要追问
+    followup_question?: string;    // 追问内容
+    routed_to?: string;            // 路由目标
+  };
+  actual?: {                       // 运行后填充
+    classification?: string;
+    draft_reply?: string;
+    requires_followup?: boolean;
+    followup_question?: string;
+    routed_to?: string;
+    error?: string;
+  };
+  status: 'pending' | 'running' | 'pass' | 'fail';
+  selected: boolean;               // 是否被选中
+}
+
+interface TestCasesPanelState {
+  cases: TestCase[];
+  totalCount: number;
+  passCount: number;
+  failCount: number;
+  runningCount: number;
+  pendingCount: number;
+}
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -20,6 +20,9 @@ import { omsChatflowMessages, omsChatflowChipSets } from '../data/omsChatflowSce
 import { debugSidebarRound1, debugSidebarRound2, debugSidebarRound3, debugLeftRound1, debugLeftRound2, debugLeftRound3, debugSidebarRun2, debugLeftRun2Start } from '../data/debugRunSidebarScenarios';
 import type { DebugSidebarMessage } from '../data/debugRunSidebarScenarios';
 import DebugRunPanel from '../components/debugRun/DebugRunPanel';
+import TestCasesPanel from '../components/testCases/TestCasesPanel';
+import { mockTestCases, testCaseExecLogs, mockTestCaseResults } from '../data/testCasesScenarios';
+import type { TestCase, TestCaseStatus } from '../data/testCasesScenarios';
 import type { ScenarioMessage, PanelParam, ConfigField } from '../data/runAgentScenarios';
 import type { ChatMessage } from '../types';
 
@@ -1204,6 +1207,9 @@ function StewardInner() {
   const [pendingOmsRun, setPendingOmsRun] = useState(false);
   const [configName, setConfigName] = useState<string | null>(null);
   const [debugRunCount, setDebugRunCount] = useState(0); // 0, 1, or 2
+  // Test Cases state
+  const [testCases, setTestCases] = useState<TestCase[]>([]);
+  const [testRunningIndex, setTestRunningIndex] = useState(-1);
   const [debugSidebarMessages, setDebugSidebarMessages] = useState<DebugSidebarMessage[]>([]);
   const [debugSidebarRound, setDebugSidebarRound] = useState(0);
   const [rightPanelWidth, setRightPanelWidth] = useState(35);
@@ -1576,6 +1582,49 @@ function StewardInner() {
     runAgentFlowTimers.current = [t];
   }, []);
 
+  const runTestCaseSequence = useCallback((cases: TestCase[], index: number) => {
+    if (index >= cases.length) {
+      // All done — show result message
+      const now = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const passCount = testCases.filter(c => c.status === 'pass').length;
+      const failCount = testCases.filter(c => c.status === 'fail').length;
+      const allPass = failCount === 0;
+      const resultMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'steward',
+        content: allPass ? 'BUILD_TEST_CASES_ALL_PASS' : 'BUILD_TEST_CASES_HAS_FAIL',
+        timestamp: now(),
+      };
+      setMessages((prev) => [...prev, resultMsg]);
+      setBuildFlowChipStep(1203);
+      return;
+    }
+    const currentCase = cases[index];
+    const now = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // Update status to running
+    setTestCases(prev => prev.map(c => c.id === currentCase.id ? { ...c, status: 'running' as TestCaseStatus } : c));
+    setTestRunningIndex(index);
+    // Add exec-log message to chat
+    const runMsg: ChatMessage = {
+      id: `test-run-${currentCase.id}`,
+      role: 'steward',
+      content: `BUILD_TEST_CASE_RUNNING:${currentCase.id}`,
+      timestamp: now(),
+    };
+    setMessages((prev) => [...prev, runMsg]);
+
+    // Simulate execution
+    const execTime = (testCaseExecLogs[currentCase.id]?.lines.length || 5) * 400;
+    const t = setTimeout(() => {
+      const result = mockTestCaseResults[currentCase.id];
+      const passed = result && !result.error && result.classification === currentCase.expected.classification;
+      setTestCases(prev => prev.map(c => c.id === currentCase.id ? { ...c, status: (passed ? 'pass' : 'fail') as TestCaseStatus, actual: result } : c));
+      // Continue next
+      runTestCaseSequence(cases, index + 1);
+    }, execTime);
+    runAgentFlowTimers.current.push(t);
+  }, [testCases]);
+
   const handleBuildFlowChip = useCallback((chipText: string) => {
     const now = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -1827,15 +1876,113 @@ function StewardInner() {
       setBuildFlowChipStep(-1);
       const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: chipText, timestamp: now() };
       setMessages((prev) => [...prev, userMsg]);
+      setTypingStatus('Analyzing agent capabilities...');
+      setIsTyping(true);
+      const t = setTimeout(() => {
+        setIsTyping(false);
+        const testIntroMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'steward', content: 'BUILD_TEST_CASES_INTRO', timestamp: now() };
+        setMessages((prev) => [...prev, testIntroMsg]);
+        setBuildFlowChipStep(1201);
+      }, 1200);
+      runAgentFlowTimers.current.push(t);
+
+    // Step 12-test: User clicks "生成测试用例"
+    } else if (buildFlowChipStep === 1201 && chipText === buildAgentChips.step12_testCases) {
+      setBuildFlowChipStep(-1);
+      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: chipText, timestamp: now() };
+      setMessages((prev) => [...prev, userMsg]);
+      setTypingStatus('Generating test cases...');
+      setIsTyping(true);
+      const t = setTimeout(() => {
+        setIsTyping(false);
+        setTestCases(mockTestCases.map(c => ({ ...c })));
+        setCurrentA2UI('TEST_CASES_VIEW');
+        const genMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'steward', content: 'BUILD_TEST_CASES_GENERATED', timestamp: now() };
+        setMessages((prev) => [...prev, genMsg]);
+        setBuildFlowChipStep(1202);
+      }, 1800);
+      runAgentFlowTimers.current.push(t);
+
+    // Step 12-test: User clicks "跳过测试，直接发布"
+    } else if (buildFlowChipStep === 1201 && chipText === buildAgentChips.step12_skipTest) {
+      setBuildFlowChipStep(-1);
+      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: chipText, timestamp: now() };
+      setMessages((prev) => [...prev, userMsg]);
       setTypingStatus('Preparing for publish...');
       setIsTyping(true);
       const t = setTimeout(() => {
         setIsTyping(false);
         const chooseMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'steward', content: 'BUILD_CHOOSE_PROD_CONFIG', timestamp: now() };
         setMessages((prev) => [...prev, chooseMsg]);
-        setBuildFlowChipStep(1200); // sub-step: waiting for config choice
+        setBuildFlowChipStep(1200);
       }, 1200);
       runAgentFlowTimers.current.push(t);
+
+    // Step 12-test: User clicks "Run All Test Cases"
+    } else if (buildFlowChipStep === 1202 && chipText === buildAgentChips.step12_runAll) {
+      setBuildFlowChipStep(-1);
+      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: chipText, timestamp: now() };
+      setMessages((prev) => [...prev, userMsg]);
+      const selectedCases = testCases.filter(c => c.selected);
+      if (selectedCases.length > 0) {
+        runTestCaseSequence(selectedCases, 0);
+      }
+
+    // Step 12-test: User clicks "跳过，直接发布" from test run screen
+    } else if (buildFlowChipStep === 1202 && chipText === buildAgentChips.step12_skipPublish) {
+      setBuildFlowChipStep(-1);
+      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: chipText, timestamp: now() };
+      setMessages((prev) => [...prev, userMsg]);
+      setCurrentA2UI(null);
+      setTypingStatus('Preparing for publish...');
+      setIsTyping(true);
+      const t = setTimeout(() => {
+        setIsTyping(false);
+        const chooseMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'steward', content: 'BUILD_CHOOSE_PROD_CONFIG', timestamp: now() };
+        setMessages((prev) => [...prev, chooseMsg]);
+        setBuildFlowChipStep(1200);
+      }, 1200);
+      runAgentFlowTimers.current.push(t);
+
+    // Step 12-test: All pass → "进入发布流程"
+    } else if (buildFlowChipStep === 1203 && chipText === buildAgentChips.step12_allPass) {
+      setBuildFlowChipStep(-1);
+      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: chipText, timestamp: now() };
+      setMessages((prev) => [...prev, userMsg]);
+      setCurrentA2UI(null);
+      setTypingStatus('Preparing for publish...');
+      setIsTyping(true);
+      const t = setTimeout(() => {
+        setIsTyping(false);
+        const chooseMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'steward', content: 'BUILD_CHOOSE_PROD_CONFIG', timestamp: now() };
+        setMessages((prev) => [...prev, chooseMsg]);
+        setBuildFlowChipStep(1200);
+      }, 1200);
+      runAgentFlowTimers.current.push(t);
+
+    // Step 12-test: "忽略失败，继续发布"
+    } else if (buildFlowChipStep === 1203 && chipText === buildAgentChips.step12_ignoreAndPublish) {
+      setBuildFlowChipStep(-1);
+      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: chipText, timestamp: now() };
+      setMessages((prev) => [...prev, userMsg]);
+      setCurrentA2UI(null);
+      setTypingStatus('Preparing for publish...');
+      setIsTyping(true);
+      const t = setTimeout(() => {
+        setIsTyping(false);
+        const chooseMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'steward', content: 'BUILD_CHOOSE_PROD_CONFIG', timestamp: now() };
+        setMessages((prev) => [...prev, chooseMsg]);
+        setBuildFlowChipStep(1200);
+      }, 1200);
+      runAgentFlowTimers.current.push(t);
+
+    // Step 12-test: "再跑一轮"
+    } else if (buildFlowChipStep === 1203 && chipText === buildAgentChips.step12_rerun) {
+      setBuildFlowChipStep(-1);
+      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: chipText, timestamp: now() };
+      setMessages((prev) => [...prev, userMsg]);
+      setTestCases(prev => prev.map(c => ({ ...c, status: 'pending' as TestCaseStatus, actual: undefined })));
+      setBuildFlowChipStep(1202);
 
     // Step 12 sub: User chooses to create new prod config
     } else if (buildFlowChipStep === 1200 && chipText.includes('创建新的')) {
@@ -2184,7 +2331,7 @@ Would you like me to guide you through any of these steps, or would you prefer t
         setCurrentA2UI(content);
       } else if (content === 'CONFIGURATION_OPTIONS') {
         setCurrentA2UI(null);
-      } else if (!content.includes('VIEW') && !content.startsWith('BUILD_AGENT_') && !content.startsWith('RUN_AGENT_') && currentA2UIRef.current !== 'APPROVALS_VIEW' && currentA2UIRef.current !== 'HEALTH_VIEW' && currentA2UIRef.current !== 'BUILD_AGENT_VIEW' && currentA2UIRef.current !== 'RUN_AGENT_VIEW' && currentA2UIRef.current !== 'DEBUG_RUN_VIEW') {
+      } else if (!content.includes('VIEW') && !content.startsWith('BUILD_AGENT_') && !content.startsWith('BUILD_TEST_') && !content.startsWith('RUN_AGENT_') && currentA2UIRef.current !== 'APPROVALS_VIEW' && currentA2UIRef.current !== 'HEALTH_VIEW' && currentA2UIRef.current !== 'BUILD_AGENT_VIEW' && currentA2UIRef.current !== 'RUN_AGENT_VIEW' && currentA2UIRef.current !== 'DEBUG_RUN_VIEW' && currentA2UIRef.current !== 'TEST_CASES_VIEW') {
         setCurrentA2UI(null);
       }
     }
@@ -3034,6 +3181,105 @@ Would you like me to guide you through any of these steps, or would you prefer t
             onClick={() => setCurrentA2UI(currentA2UI === 'BUILD_AGENT_VIEW' ? null : 'BUILD_AGENT_VIEW')}
             isActive={currentA2UI === 'BUILD_AGENT_VIEW'}
           />
+        </div>
+      );
+    }
+
+    if (message.content === 'BUILD_TEST_CASES_INTRO') {
+      return (
+        <div className="w-full">
+          <div className="flex items-center gap-2 mb-2.5">
+            <div className="w-5 h-5 rounded-full bg-indigo-500/15 flex items-center justify-center text-[11px]">🧪</div>
+            <span className="text-sm font-medium text-indigo-300">测试用例验证</span>
+          </div>
+          <p className="text-sm text-gray-300 leading-relaxed">
+            Debug 测试通过了！接下来我为你生成一组测试用例，覆盖主要场景，确保 Agent 在各种输入下都能正确工作。
+          </p>
+        </div>
+      );
+    }
+
+    if (message.content === 'BUILD_TEST_CASES_GENERATED') {
+      return (
+        <div className="w-full">
+          <div className="flex items-center gap-2 mb-2.5">
+            <div className="w-5 h-5 rounded-full bg-emerald-500/15 flex items-center justify-center text-[11px]">✅</div>
+            <span className="text-sm font-medium text-emerald-400">测试用例已生成</span>
+          </div>
+          <p className="text-sm text-gray-300 leading-relaxed">
+            已生成 <strong className="text-white font-medium">8</strong> 个测试用例，覆盖邮件分类、缺失信息检测、审批路由、边界情况等场景。你可以在右侧面板查看、编辑用例，然后全选或逐个运行。
+          </p>
+          <PanelCard
+            icon={CheckCircle2}
+            iconClass="bg-indigo-500/10 text-indigo-400"
+            title="Test Cases Panel"
+            onClick={() => setCurrentA2UI(currentA2UI === 'TEST_CASES_VIEW' ? null : 'TEST_CASES_VIEW')}
+            isActive={currentA2UI === 'TEST_CASES_VIEW'}
+          />
+        </div>
+      );
+    }
+
+    if (message.content.startsWith('BUILD_TEST_CASE_RUNNING:')) {
+      const caseId = message.content.split(':')[1];
+      const tc = testCases.find(c => c.id === caseId);
+      const caseIndex = testCases.findIndex(c => c.id === caseId);
+      const isDone = tc?.status === 'pass' || tc?.status === 'fail';
+      if (isDone) {
+        return (
+          <div className="w-full py-1">
+            <div className="flex items-center gap-2 text-xs">
+              <span className={tc?.status === 'pass' ? 'text-emerald-400' : 'text-rose-400'}>{tc?.status === 'pass' ? '✓' : '✗'}</span>
+              <span className="text-gray-500">#{caseIndex + 1}</span>
+              <span className="text-gray-400">{tc?.name}</span>
+              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${tc?.status === 'pass' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'}`}>
+                {tc?.status?.toUpperCase()}
+              </span>
+            </div>
+          </div>
+        );
+      }
+      // Currently running — just show a one-liner, exec log is in the right panel
+      return (
+        <div className="w-full py-1">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+            <span className="text-gray-500">#{caseIndex + 1}</span>
+            <span className="text-gray-300">{tc?.name}</span>
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-400">RUNNING</span>
+          </div>
+        </div>
+      );
+    }
+
+    if (message.content === 'BUILD_TEST_CASES_ALL_PASS') {
+      return (
+        <div className="w-full">
+          <div className="flex items-center gap-2 mb-2.5">
+            <div className="w-5 h-5 rounded-full bg-emerald-500/15 flex items-center justify-center text-[11px]">🎉</div>
+            <span className="text-sm font-medium text-emerald-400">全部通过</span>
+          </div>
+          <p className="text-sm text-gray-300 leading-relaxed">
+            全部 <strong className="text-white font-medium">8</strong> 个测试用例通过！Agent 在各种场景下都能正确工作，可以进入发布流程了。
+          </p>
+        </div>
+      );
+    }
+
+    if (message.content === 'BUILD_TEST_CASES_HAS_FAIL') {
+      const failedCases = testCases.filter(c => c.status === 'fail');
+      const passedCount = testCases.filter(c => c.status === 'pass').length;
+      return (
+        <div className="w-full">
+          <div className="flex items-center gap-2 mb-2.5">
+            <div className="w-5 h-5 rounded-full bg-amber-500/15 flex items-center justify-center text-[11px]">⚠️</div>
+            <span className="text-sm font-medium text-amber-400">部分失败</span>
+          </div>
+          <p className="text-sm text-gray-300 leading-relaxed">
+            {passedCount}/{testCases.length} 通过，{failedCases.length} 个失败
+            {failedCases.length > 0 && `（${failedCases.map((c, i) => `#${testCases.indexOf(c) + 1} ${c.name}`).join('、')}）`}。
+            建议处理边界情况后再发布。
+          </p>
         </div>
       );
     }
@@ -3966,6 +4212,55 @@ Would you like me to guide you through any of these steps, or would you prefer t
                     </div></div>
                   );
                 }
+                if (buildFlowChipStep === 1201) {
+                  return (
+                    <div className="mb-3"><div className="flex flex-wrap gap-2">
+                      <button onClick={() => handleBuildFlowChip(buildAgentChips.step12_testCases)} className={chipStyle}>
+                        {buildAgentChips.step12_testCases}
+                      </button>
+                      <button onClick={() => handleBuildFlowChip(buildAgentChips.step12_skipTest)} className={chipStyle}>
+                        {buildAgentChips.step12_skipTest}
+                      </button>
+                    </div></div>
+                  );
+                }
+                if (buildFlowChipStep === 1202) {
+                  return (
+                    <div className="mb-3"><div className="flex flex-wrap gap-2">
+                      <button onClick={() => handleBuildFlowChip(buildAgentChips.step12_runAll)} className={chipStyle}>
+                        {buildAgentChips.step12_runAll}
+                      </button>
+                      <button onClick={() => handleBuildFlowChip(buildAgentChips.step12_skipPublish)} className={chipStyle}>
+                        {buildAgentChips.step12_skipPublish}
+                      </button>
+                    </div></div>
+                  );
+                }
+                if (buildFlowChipStep === 1203) {
+                  const hasFail = testCases.some(c => c.status === 'fail');
+                  return (
+                    <div className="mb-3"><div className="flex flex-wrap gap-2">
+                      {!hasFail ? (
+                        <>
+                          <button onClick={() => handleBuildFlowChip(buildAgentChips.step12_allPass)} className={chipStyle}>
+                            {buildAgentChips.step12_allPass}
+                          </button>
+                          <button onClick={() => handleBuildFlowChip(buildAgentChips.step12_rerun)} className={chipStyle}>
+                            {buildAgentChips.step12_rerun}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => handleBuildFlowChip(buildAgentChips.step12_fixAndRerun)} className={chipStyle}>
+                            {buildAgentChips.step12_fixAndRerun}                </button>
+                          <button onClick={() => handleBuildFlowChip(buildAgentChips.step12_ignoreAndPublish)} className={chipStyle}>
+                            {buildAgentChips.step12_ignoreAndPublish}
+                          </button>
+                        </>
+                      )}
+                    </div></div>
+                  );
+                }
                 if (buildFlowChipStep === 14) {
                   return (
                     <div className="mb-3"><div className="flex flex-wrap gap-2">
@@ -4184,6 +4479,27 @@ Would you like me to guide you through any of these steps, or would you prefer t
                 agentName="Customer Service Email Assistant"
                 agentEmoji="✉️"
                 messages={debugSidebarMessages}
+                onClose={() => setCurrentA2UI(null)}
+              />
+            ) : currentA2UI === 'TEST_CASES_VIEW' ? (
+              <TestCasesPanel
+                cases={testCases}
+                execLogs={testCaseExecLogs}
+                onRunAll={() => handleBuildFlowChip(buildAgentChips.step12_runAll)}
+                onRunSingle={(caseId) => {
+                  const tc = testCases.find(c => c.id === caseId);
+                  if (tc) runTestCaseSequence([tc], 0);
+                }}
+                onUpdateCase={(caseId, updates) => {
+                  setTestCases(prev => prev.map(c => c.id === caseId ? { ...c, ...updates } : c));
+                }}
+                onToggleSelect={(caseId) => {
+                  setTestCases(prev => prev.map(c => c.id === caseId ? { ...c, selected: !c.selected } : c));
+                }}
+                onToggleSelectAll={() => {
+                  const allSelected = testCases.every(c => c.selected);
+                  setTestCases(prev => prev.map(c => ({ ...c, selected: !allSelected })));
+                }}
                 onClose={() => setCurrentA2UI(null)}
               />
             ) : currentA2UI === 'BUILD_AGENT_VIEW' || currentA2UI === 'RUN_LOG_VIEW' ? (
